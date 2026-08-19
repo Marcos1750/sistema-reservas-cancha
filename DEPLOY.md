@@ -16,7 +16,7 @@ El repositorio está preparado como un único proyecto Vercel:
 
    - DATABASE_URL: conexión PostgreSQL.
    - AUTH_SECRET: secreto aleatorio largo.
-   - ADMIN_PASSWORD_HASH: hash generado con npm run hash-password -- "tu-clave" desde backend/.
+   - ADMIN_PASSWORD_HASH: hash generado con npm run hash-password -- "tu-clave" desde la raíz del repositorio.
    - NODE_ENV=production en Production.
 
 5. No definir VITE_ACCESS_PW ni VITE_API_URL en producción.
@@ -35,3 +35,5 @@ Desde la raíz del repositorio:
     vercel --prod
 
 Las funciones Vercel son efímeras: las migraciones se ejecutan al inicializar la Function y todos los datos viven en PostgreSQL.
+
+El proyecto Vercel ya está creado como `sistema-reservas-cancha` y publica el frontend en `https://sistema-reservas-cancha.vercel.app`. Hasta configurar las tres variables de entorno, la interfaz carga pero la API devolverá un error 500 porque no puede abrir PostgreSQL.
