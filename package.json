@@ -1,11 +1,38 @@
 {
-  "name": "sistema-reservas-cancha-deploy",
+  "name": "sistema-reservas-cancha",
   "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
   "engines": {
     "node": "22.x"
   },
   "scripts": {
-    "build": "npm run build --prefix frontend",
-    "vercel-build": "npm run build --prefix frontend"
+    "build": "vite build --config frontend/vite.config.mjs",
+    "vercel-build": "npm run build",
+    "dev": "vite --config frontend/vite.config.mjs",
+    "lint": "oxlint frontend",
+    "test": "node --test backend/test/*.test.js",
+    "hash-password": "node backend/scripts/hash-password.js"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "autoprefixer": "^10.5.2",
+    "oxlint": "^1.71.0",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^4.3.2",
+    "vite": "^8.1.1"
   }
 }
