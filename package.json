@@ -1,0 +1,11 @@
+{
+  "name": "sistema-reservas-cancha-deploy",
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "npm run build --prefix frontend",
+    "start": "npm start --prefix backend"
+  }
+}
