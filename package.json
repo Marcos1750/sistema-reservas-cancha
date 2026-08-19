@@ -6,6 +6,6 @@
   },
   "scripts": {
     "build": "npm run build --prefix frontend",
-    "start": "npm start --prefix backend"
+    "vercel-build": "npm run build --prefix frontend"
   }
 }

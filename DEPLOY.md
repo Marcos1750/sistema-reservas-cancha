@@ -1,33 +1,37 @@
-# Despliegue en Railway
+# Despliegue en Vercel
 
-La configuración actual está preparada para un único servicio Railway: Express sirve frontend/dist y expone la API en /api. El repositorio local contiene dos repositorios Git independientes, por lo que antes de conectar Railway hay que consolidarlos en un repositorio monorepo con esta estructura:
+El repositorio está preparado como un único proyecto Vercel:
 
-    /
-      backend/
-      frontend/
-      railway.json
-      package.json
+- frontend/ se compila como aplicación Vite estática.
+- api/index.js expone el backend Express como una Vercel Function.
+- /api/* y la SPA comparten el mismo dominio, por lo que no se necesita CORS.
+- PostgreSQL debe ser externo (Neon, Supabase o Vercel Marketplace); Vercel no ofrece almacenamiento persistente para SQLite.
 
-En Railway:
+## Configuración
 
-1. Crear un proyecto y agregar un servicio PostgreSQL.
-2. Conectar el servicio de aplicación al repositorio monorepo y dejar la raíz del servicio en /.
-3. Railway tomará railway.json: instala ambos paquetes, compila Vite, inicia Express y espera /api/health.
-4. Agregar las variables:
-   - NODE_ENV=production
-   - DATABASE_URL=\${{Postgres.DATABASE_URL}}
-   - ADMIN_PASSWORD_HASH generado con npm run hash-password -- "tu-clave" desde backend/
-   - AUTH_SECRET como una cadena aleatoria larga
-5. Generar un dominio público para el servicio de aplicación.
+1. Importar Marcos1750/sistema-reservas-cancha en Vercel.
+2. Mantener la raíz del proyecto en /.
+3. Vercel tomará vercel.json para instalar dependencias, compilar Vite y crear la Function.
+4. Definir estas variables en Production, Preview y Development:
+
+   - DATABASE_URL: conexión PostgreSQL.
+   - AUTH_SECRET: secreto aleatorio largo.
+   - ADMIN_PASSWORD_HASH: hash generado con npm run hash-password -- "tu-clave" desde backend/.
+   - NODE_ENV=production en Production.
+
+5. No definir VITE_ACCESS_PW ni VITE_API_URL en producción.
 6. Verificar GET https://<dominio>/api/health, GET https://<dominio>/api/reservas y GET https://<dominio>/.
 
-No configurar VITE_ACCESS_PW: las variables VITE_* quedan visibles en el bundle del navegador. VITE_API_URL debe quedar vacío en producción porque frontend y API comparten origen.
+## CLI
 
-Para probar localmente, ejecutar PostgreSQL y luego:
+Desde la raíz del repositorio:
 
-    copy backend\.env.example backend\.env
-    cd backend
-    npm install
-    npm run hash-password -- "tu-clave"
+    npm install -g vercel
+    vercel login
+    vercel link
+    vercel env add DATABASE_URL production
+    vercel env add AUTH_SECRET production
+    vercel env add ADMIN_PASSWORD_HASH production
+    vercel --prod
 
-Completar backend/.env, compilar el frontend con npm run build --prefix frontend y arrancar con npm start --prefix backend.
+Las funciones Vercel son efímeras: las migraciones se ejecutan al inicializar la Function y todos los datos viven en PostgreSQL.
