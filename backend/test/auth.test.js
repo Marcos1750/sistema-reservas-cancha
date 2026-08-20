@@ -54,8 +54,17 @@ test('una reserva nueva exige una cancha concreta', () => {
   assert.equal(validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00' }).error, 'Nombre, teléfono, fecha u horario inválido');
   assert.deepEqual(
     validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', cancha_id: 7 }),
-    { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', canchaId: 7 },
+    { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', canchaId: 7, recurrente: false, semanas: 1 },
   );
+});
+
+test('un horario fijo valida la cantidad de semanas', () => {
+  const base = { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', cancha_id: 7, recurrente: true };
+  assert.equal(validateReservation({ ...base, semanas: 1 }).error, 'La cantidad de semanas es inválida');
+  assert.equal(validateReservation({ ...base, semanas: 53 }).error, 'La cantidad de semanas es inválida');
+  assert.deepEqual(validateReservation({ ...base, semanas: 4 }), {
+    nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', canchaId: 7, recurrente: true, semanas: 4,
+  });
 });
 
 test('el cliente puede cancelar hasta dos horas antes del turno', () => {

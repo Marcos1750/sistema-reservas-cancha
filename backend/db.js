@@ -105,6 +105,19 @@ async function migrate(client = pool) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS reservas_recurrentes (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+      cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL,
+      nombre TEXT NOT NULL,
+      telefono TEXT NOT NULL,
+      hora TEXT NOT NULL,
+      dia_semana SMALLINT NOT NULL CHECK (dia_semana BETWEEN 0 AND 6),
+      fecha_inicio DATE NOT NULL,
+      semanas SMALLINT NOT NULL CHECK (semanas BETWEEN 2 AND 52),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     ALTER TABLE reservas DROP CONSTRAINT IF EXISTS reservas_fecha_hora_key;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL;
@@ -113,6 +126,12 @@ async function migrate(client = pool) {
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancelled_by TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS recurrencia_id BIGINT REFERENCES reservas_recurrentes(id) ON DELETE SET NULL;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_nombre TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_ciudad TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_provincia TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_deporte TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_whatsapp TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS whatsapp TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS ciudad TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS provincia TEXT NOT NULL DEFAULT '';
@@ -129,6 +148,14 @@ async function migrate(client = pool) {
          ELSE 'Fútbol 5'
        END
      WHERE trim(deporte) = '' OR deporte NOT IN ('Fútbol 5', 'Pádel', 'Tenis');
+    UPDATE reservas r
+       SET cancha_nombre = c.nombre,
+           cancha_ciudad = c.ciudad,
+           cancha_provincia = c.provincia,
+           cancha_deporte = c.deporte,
+           cancha_whatsapp = c.whatsapp
+      FROM canchas c
+     WHERE r.cancha_id = c.id AND trim(r.cancha_nombre) = '';
     ALTER TABLE bloqueos ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE CASCADE;
     ALTER TABLE bloqueos DROP CONSTRAINT IF EXISTS bloqueos_fecha_key;
 
@@ -140,6 +167,7 @@ async function migrate(client = pool) {
       ON reservas (fecha, hora) WHERE cancha_id IS NULL AND estado = 'confirmada';
     CREATE INDEX IF NOT EXISTS reservas_fecha_idx ON reservas (fecha);
     CREATE INDEX IF NOT EXISTS reservas_user_idx ON reservas (user_id);
+    CREATE INDEX IF NOT EXISTS reservas_recurrencia_idx ON reservas (recurrencia_id);
     CREATE INDEX IF NOT EXISTS canchas_guardadas_user_idx ON canchas_guardadas (user_id);
     CREATE INDEX IF NOT EXISTS horarios_cancha_dia_idx ON horarios_cancha (cancha_id, dia_semana);
     CREATE INDEX IF NOT EXISTS canchas_owner_idx ON canchas (owner_user_id);

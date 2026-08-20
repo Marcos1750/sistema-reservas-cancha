@@ -61,10 +61,13 @@ function validateReservation(body) {
   const fecha = cleanText(body.fecha, 10);
   const hora = cleanText(body.hora, 11);
   const canchaId = Number(body.cancha_id);
+  const recurrente = body.recurrente === true;
+  const semanas = recurrente ? Number(body.semanas) : 1;
   if (nombre.length < 2 || !/^\d{7,15}$/.test(telefono) || !validDate(fecha) || !validSlot(hora) || !Number.isSafeInteger(canchaId) || canchaId < 1) {
     return { error: 'Nombre, teléfono, fecha u horario inválido' };
   }
-  return { nombre, telefono, fecha, hora, canchaId };
+  if (!Number.isInteger(semanas) || (recurrente && (semanas < 2 || semanas > 52))) return { error: 'La cantidad de semanas es inválida' };
+  return { nombre, telefono, fecha, hora, canchaId, recurrente, semanas };
 }
 
 function validateCourt(body) {
@@ -141,9 +144,9 @@ async function courtAccess(req, res, next) {
   }
 }
 
-async function findSlotPrice(canchaId, fecha, hora) {
+async function findSlotPrice(canchaId, fecha, hora, client = pool) {
   const parsed = parseSlot(hora);
-  const { rows } = await pool.query(
+  const { rows } = await client.query(
     `SELECT h.precio_ars, h.activo, COALESCE(e.disponible, true) AS exception_available,
             e.precio_ars AS exception_price
        FROM horarios_cancha h
@@ -159,6 +162,12 @@ async function findSlotPrice(canchaId, fecha, hora) {
   const slot = rows[0];
   if (!slot || !slot.activo || !slot.exception_available) return null;
   return slot.exception_price ?? slot.precio_ars;
+}
+
+function dateAfterWeeks(value, weeks) {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + (weeks * 7)));
+  return date.toISOString().slice(0, 10);
 }
 
 app.get('/api/health', async (_req, res) => {
@@ -330,30 +339,74 @@ app.get('/api/bloqueos', async (_req, res, next) => {
 app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'superadmin']), async (req, res, next) => {
   const reservation = validateReservation(req.body || {});
   if (reservation.error) return res.status(400).json(reservation);
+  const client = await pool.connect();
   try {
-    const blocked = await pool.query('SELECT 1 FROM bloqueos WHERE fecha = $1 AND (cancha_id = $2 OR cancha_id IS NULL)', [reservation.fecha, reservation.canchaId]);
-    if (blocked.rowCount) return res.status(409).json({ error: 'El día está bloqueado' });
-    const price = await findSlotPrice(reservation.canchaId, reservation.fecha, reservation.hora);
-    if (price === null) return res.status(409).json({ error: 'Ese horario no está disponible' });
-    const { rows } = await pool.query(
-      `INSERT INTO reservas (nombre, telefono, fecha, hora, user_id, cancha_id, precio_ars)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, fecha::text, hora, cancha_id, precio_ars`,
-      [reservation.nombre, reservation.telefono, reservation.fecha, reservation.hora, req.user.id, reservation.canchaId, price],
+    await client.query('BEGIN');
+    const courtResult = await client.query(
+      'SELECT id, nombre, ciudad, provincia, deporte, whatsapp FROM canchas WHERE id = $1 AND activa = true FOR SHARE',
+      [reservation.canchaId],
     );
-    res.status(201).json({ ...rows[0], message: 'Reserva guardada' });
+    const court = courtResult.rows[0];
+    if (!court) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'La cancha ya no está disponible' });
+    }
+    const dates = Array.from({ length: reservation.semanas }, (_, index) => dateAfterWeeks(reservation.fecha, index));
+    const pricedDates = [];
+    for (const fecha of dates) {
+      const blocked = await client.query('SELECT 1 FROM bloqueos WHERE fecha = $1 AND (cancha_id = $2 OR cancha_id IS NULL)', [fecha, reservation.canchaId]);
+      if (blocked.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: `El día ${fecha} está bloqueado` });
+      }
+      const price = await findSlotPrice(reservation.canchaId, fecha, reservation.hora, client);
+      if (price === null) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: `El horario no está disponible el ${fecha}` });
+      }
+      pricedDates.push({ fecha, price });
+    }
+    let recurrenceId = null;
+    if (reservation.recurrente) {
+      const recurring = await client.query(
+        `INSERT INTO reservas_recurrentes (user_id, cancha_id, nombre, telefono, hora, dia_semana, fecha_inicio, semanas)
+         VALUES ($1,$2,$3,$4,$5,EXTRACT(DOW FROM $6::date)::int,$6,$7) RETURNING id`,
+        [req.user.id, reservation.canchaId, reservation.nombre, reservation.telefono, reservation.hora, reservation.fecha, reservation.semanas],
+      );
+      recurrenceId = recurring.rows[0].id;
+    }
+    const rows = [];
+    for (const occurrence of pricedDates) {
+      const result = await client.query(
+        `INSERT INTO reservas (nombre, telefono, fecha, hora, user_id, cancha_id, precio_ars, recurrencia_id,
+                               cancha_nombre, cancha_ciudad, cancha_provincia, cancha_deporte, cancha_whatsapp)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING id, fecha::text, hora, cancha_id, precio_ars, recurrencia_id`,
+        [reservation.nombre, reservation.telefono, occurrence.fecha, reservation.hora, req.user.id, reservation.canchaId, occurrence.price, recurrenceId,
+          court.nombre, court.ciudad, court.provincia, court.deporte, court.whatsapp],
+      );
+      rows.push(result.rows[0]);
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ ...rows[0], reservas: rows, recurrencia_id: recurrenceId, message: reservation.recurrente ? `Horario fijo reservado por ${reservation.semanas} semanas` : 'Reserva guardada' });
   } catch (error) {
-    if (error.code === '23505') return res.status(409).json({ error: 'Ese horario ya está reservado' });
+    await client.query('ROLLBACK').catch(() => {});
+    if (error.code === '23505') return res.status(409).json({ error: 'Uno de los horarios ya fue reservado por otra persona' });
     next(error);
+  } finally {
+    client.release();
   }
 });
 
 app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars,
-              r.estado, r.created_at, c.id AS cancha_id, c.nombre AS cancha,
-              c.ciudad, c.provincia, c.deporte, c.whatsapp
+      `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars, r.recurrencia_id,
+              r.estado, r.created_at, c.id AS cancha_id, COALESCE(c.nombre, r.cancha_nombre, 'Cancha eliminada') AS cancha,
+              COALESCE(c.ciudad, r.cancha_ciudad, '') AS ciudad,
+              COALESCE(c.provincia, r.cancha_provincia, '') AS provincia,
+              COALESCE(c.deporte, r.cancha_deporte, '') AS deporte,
+              COALESCE(c.whatsapp, r.cancha_whatsapp, '') AS whatsapp
          FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id
         WHERE r.user_id = $1 ORDER BY r.fecha, r.hora`,
       [req.user.id],
@@ -367,7 +420,7 @@ app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
 app.post('/api/mis-reservas/:id/cancelar', requireAuth(), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT r.id, r.fecha::text, r.hora, r.estado, c.whatsapp
+      `SELECT r.id, r.fecha::text, r.hora, r.estado, COALESCE(c.whatsapp, r.cancha_whatsapp) AS whatsapp
          FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id
         WHERE r.id = $1 AND r.user_id = $2`,
       [req.params.id, req.user.id],
@@ -440,10 +493,6 @@ app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, re
 
 app.delete('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, res, next) => {
   try {
-    const history = await pool.query('SELECT 1 FROM reservas WHERE cancha_id = $1 LIMIT 1', [req.params.id]);
-    if (history.rowCount) {
-      return res.status(409).json({ error: 'No se puede eliminar esta cancha porque tiene reservas en su historial.' });
-    }
     await pool.query('DELETE FROM canchas WHERE id = $1', [req.params.id]);
     res.status(204).end();
   } catch (error) {
@@ -543,8 +592,11 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
       filter = 'WHERE c.owner_user_id = $1';
     }
     const { rows } = await pool.query(
-      `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars,
-              r.estado, r.created_at, c.nombre AS cancha, c.ciudad, c.provincia, c.deporte
+      `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars, r.recurrencia_id,
+              r.estado, r.created_at, COALESCE(c.nombre, r.cancha_nombre, 'Cancha eliminada') AS cancha,
+              COALESCE(c.ciudad, r.cancha_ciudad, '') AS ciudad,
+              COALESCE(c.provincia, r.cancha_provincia, '') AS provincia,
+              COALESCE(c.deporte, r.cancha_deporte, '') AS deporte
          FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id ${filter}
         ORDER BY r.fecha, r.hora`,
       params,
