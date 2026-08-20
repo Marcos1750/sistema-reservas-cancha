@@ -1,101 +1,235 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiFetch } from './api';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Icon, PitchMark } from './icons';
+import { formatARS, mockCourts } from './mockData';
+import { authClient } from './authClient';
+import { apiFetch, readApiResponse } from './api';
 
-const horarios = [
-  '08:00-09:00', '09:00-10:00', '10:00-11:00', '11:00-12:00',
-  '12:00-13:00', '13:00-14:00', '14:00-15:00', '15:00-16:00',
-  '16:00-17:00', '17:00-18:00', '18:00-19:00', '19:00-20:00',
-  '20:00-21:00', '21:00-22:00', '22:00-23:00',
-];
-
-function todayLocal() {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+function toDateValue(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-async function readError(response, fallback) {
-  try {
-    const data = await response.json();
-    return data.error || fallback;
-  } catch {
-    return fallback;
-  }
+const dateOptions = Array.from({ length: 4 }, (_, offset) => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + offset);
+  return {
+    value: toDateValue(date),
+    label: offset === 0 ? 'Hoy' : offset === 1 ? 'Mañana' : new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric' }).format(date),
+    sublabel: new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: 'short' }).format(date).toUpperCase(),
+  };
+});
+
+function formatBookingDay(value) {
+  return { Hoy: '19', Mañana: '20', 'Vie 21': '21', 'Sáb 22': '22' }[value] || value.slice(-2);
+}
+
+function CourtPlaceholder({ court, large = false }) {
+  return (
+    <div className={`court-placeholder court-placeholder--${court.accent}${large ? ' court-placeholder--large' : ''}`}>
+      <div className="court-placeholder__glow" />
+      <div className="court-placeholder__pitch">
+        <span className="court-placeholder__halfway" />
+        <span className="court-placeholder__circle" />
+        <span className="court-placeholder__box court-placeholder__box--left" />
+        <span className="court-placeholder__box court-placeholder__box--right" />
+        <span className="court-placeholder__spot court-placeholder__spot--left" />
+        <span className="court-placeholder__spot court-placeholder__spot--right" />
+      </div>
+      <div className="court-placeholder__meta"><span>EL PATIO / {court.type.replace('Fútbol ', 'F')}</span><span>{court.indoor ? 'INDOOR' : 'OPEN AIR'}</span></div>
+    </div>
+  );
+}
+
+function Brand({ onClick }) {
+  return <button className="brand" type="button" onClick={onClick} aria-label="Volver a explorar"><PitchMark /><span>el patio</span></button>;
+}
+
+function BottomNav({ current, onChange }) {
+  const items = [['explore', 'Explorar', 'home'], ['bookings', 'Mis turnos', 'ticket'], ['saved', 'Guardados', 'heart'], ['profile', 'Perfil', 'user']];
+  return <nav className="bottom-nav" aria-label="Navegación principal">{items.map(([id, label, icon]) => <button className={`bottom-nav__item${current === id ? ' is-active' : ''}`} key={id} type="button" onClick={() => onChange(id)}><Icon name={icon} size={19} strokeWidth={current === id ? 2.2 : 1.6} /><span>{label}</span></button>)}</nav>;
+}
+
+function DateRail({ selected, onSelect }) {
+  return <div className="date-rail" role="tablist" aria-label="Elegí una fecha">{dateOptions.map((date) => <button className={`date-pill${selected === date.value ? ' is-selected' : ''}`} key={date.value} type="button" role="tab" aria-selected={selected === date.value} onClick={() => onSelect(date.value)}><span>{date.label}</span><small>{date.sublabel}</small></button>)}<button className="date-pill date-pill--calendar" type="button" aria-label="Elegir otra fecha"><Icon name="calendar" size={18} /></button></div>;
+}
+
+function CourtCard({ court, onOpen, isSaved, onToggleSaved }) {
+  return <article className="court-card"><button className="court-card__visual-button" type="button" onClick={() => onOpen(court)} aria-label={`Ver detalles de ${court.name}`}><CourtPlaceholder court={court} /></button><div className="court-card__body"><div className="court-card__heading"><div><h3>{court.name}</h3><p><Icon name="pin" size={13} /> {court.neighborhood} <span className="dot-separator">·</span> {court.distance}</p></div><button className={`icon-button${isSaved ? ' is-saved' : ''}`} type="button" onClick={() => onToggleSaved(court.id)} aria-label={isSaved ? 'Quitar de guardados' : 'Guardar cancha'}><Icon name="heart" size={18} /></button></div><div className="court-card__facts"><span><Icon name="star" size={13} /> {court.rating} <small>({court.reviews})</small></span><span>{court.type}</span><span>{court.surface}</span></div><div className="court-card__footer"><div><small>Desde</small><strong>{formatARS(court.price)}</strong></div><button className="text-button" type="button" onClick={() => onOpen(court)}>Ver horarios <Icon name="arrow" size={15} /></button></div></div></article>;
+}
+
+function ExploreScreen({ courts, query, setQuery, selectedDate, setSelectedDate, typeFilter, setTypeFilter, surfaceFilter, setSurfaceFilter, onOpen, saved, onToggleSaved, session, onLogin }) {
+  const filteredCourts = useMemo(() => courts.filter((court) => {
+    const text = `${court.name} ${court.neighborhood}`.toLowerCase();
+    return text.includes(query.toLowerCase()) && (!typeFilter || court.type === typeFilter) && (!surfaceFilter || court.surface === surfaceFilter);
+  }), [courts, query, typeFilter, surfaceFilter]);
+  const initials = session?.user?.name?.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'GO';
+  return <div className="app-shell"><header className="app-header"><Brand /><button className="avatar-button" type="button" aria-label="Abrir perfil" onClick={onLogin}>{initials}</button></header><main className="main-content"><section className="welcome-block"><div className="location-line"><Icon name="pin" size={14} /> <span>Palermo, CABA</span><Icon name="down" size={13} /></div><h1>Tu próximo partido,<br /><em>a un toque.</em></h1><p>Encontrá un turno que encaje con tu semana.</p></section><div className="search-field"><Icon name="search" size={19} /><input aria-label="Buscar canchas" placeholder="Buscar por cancha o barrio" value={query} onChange={(event) => setQuery(event.target.value)} /><kbd>⌘ K</kbd></div><section className="filter-section"><div className="section-label"><span>Fecha del partido</span><button type="button" className="inline-action">Ver calendario <Icon name="arrow" size={13} /></button></div><DateRail selected={selectedDate} onSelect={setSelectedDate} /><div className="filter-row"><button className={`filter-chip${typeFilter ? ' is-active' : ''}`} type="button" onClick={() => setTypeFilter(typeFilter ? '' : 'Fútbol 5')}>Fútbol 5 <Icon name="down" size={13} /></button><button className={`filter-chip${surfaceFilter ? ' is-active' : ''}`} type="button" onClick={() => setSurfaceFilter(surfaceFilter ? '' : 'Césped sintético')}>Césped sintético <Icon name="down" size={13} /></button><button className="filter-chip filter-chip--icon" type="button" aria-label="Más filtros"><Icon name="filter" size={16} /></button></div></section><section className="courts-section"><div className="section-heading"><div><span className="section-kicker">CERCA TUYO</span><h2>Canchas cerca tuyo</h2></div><span className="result-count">{filteredCourts.length} opciones</span></div>{filteredCourts.length ? <div className="court-list">{filteredCourts.map((court) => <CourtCard key={court.id} court={court} onOpen={onOpen} isSaved={saved.includes(court.id)} onToggleSaved={onToggleSaved} />)}</div> : <div className="empty-state"><PitchMark compact /><h3>No encontramos esa cancha</h3><p>Probá con otro barrio o limpiá los filtros.</p><button className="secondary-button" type="button" onClick={() => { setQuery(''); setTypeFilter(''); setSurfaceFilter(''); }}>Limpiar filtros</button></div>}</section></main></div>;
+}
+
+function DetailScreen({ court, date, setDate, time, setTime, onBack, onReserve, saved, onToggleSaved }) {
+  const displayPrice = court.slotPrices?.[time] ?? court.price;
+  return <div className="app-shell app-shell--detail"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(court.id) ? ' is-saved' : ''}`} type="button" onClick={() => onToggleSaved(court.id)} aria-label="Guardar cancha"><Icon name="heart" size={18} /></button></header><main className="detail-content"><CourtPlaceholder court={court} large /><div className="detail-intro"><div><span className="detail-eyebrow">PREDIO SELECCIONADO</span><h1>{court.name}</h1><p><Icon name="pin" size={14} /> {court.neighborhood} <span className="dot-separator">·</span> {court.distance}</p></div><span className="rating-badge"><Icon name="star" size={13} /> {court.rating}</span></div><p className="detail-description">{court.description}</p><div className="amenity-row">{court.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} /><div className="time-grid">{court.slots.map((slot) => <button className={`time-slot${time === slot ? ' is-selected' : ''}`} key={slot} type="button" onClick={() => setTime(slot)}><Icon name="clock" size={14} /> {slot}</button>)}</div></section></main><div className="sticky-cta"><div><small>{time ? 'Total del turno' : 'Desde'}</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div><Button className="primary-button" type="button" disabled={!time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div>;
+}
+
+function BookingScreen({ court, date, time, form, setForm, onBack, onConfirm, error, defaultName }) {
+  const price = court.slotPrices?.[time] ?? court.price;
+  return <div className="app-shell app-shell--booking"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><span className="flow-title">Confirmar reserva</span><span className="step-count">02 / 02</span></header><main className="booking-content"><div className="booking-summary"><CourtPlaceholder court={court} /><div><span className="detail-eyebrow">TU TURNO</span><h2>{court.name}</h2><p><Icon name="calendar" size={13} /> {date} <span className="dot-separator">·</span> <Icon name="clock" size={13} /> {time}</p></div></div><div className="booking-divider" /><section className="form-section"><span className="section-kicker">DATOS DEL CAPITÁN</span><h1>¿A nombre de quién<br />reservamos?</h1><label>Nombre completo<Input value={form.name || defaultName || ''} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Martín Sosa" autoComplete="name" /></label><label>WhatsApp<Input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="11 5555 5555" inputMode="tel" autoComplete="tel" /></label>{error && <p className="form-error" role="alert">{error}</p>}</section></main><div className="sticky-cta sticky-cta--booking"><div><small>Total del turno</small><strong>{formatARS(price)}</strong></div><Button className="primary-button" type="button" onClick={onConfirm}>Confirmar reserva <Icon name="check" size={17} /></Button></div></div>;
+}
+
+function SuccessScreen({ court, date, time, onDone }) {
+  return <div className="success-screen"><div className="success-grid" /><div className="success-mark"><Icon name="check" size={28} /></div><span className="section-kicker">RESERVA CONFIRMADA</span><h1>El partido ya<br /><em>tiene cancha.</em></h1><p>{court.name}<br />{date} a las {time}</p><div className="success-ticket"><div><small>UBICACIÓN</small><strong>{court.neighborhood}</strong></div><div><small>TIPO</small><strong>{court.type}</strong></div><div><small>TOTAL</small><strong>{formatARS(court.price)}</strong></div></div><Button className="primary-button" type="button" onClick={onDone}>Volver a explorar <Icon name="arrow" size={17} /></Button></div>;
+}
+
+function BookingsScreen({ bookings, onOpen, onChange, session, onLogin }) {
+  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TU HISTORIAL</span><h1>Mis turnos</h1><p>Todo lo que ya está listo para jugar.</p></section>{session ? <><div className="booking-list">{bookings.map((booking) => <button className="booking-card" type="button" key={booking.id} onClick={() => onOpen(mockCourts.find((court) => court.name === booking.court) || mockCourts[0])}><div className="booking-card__date"><strong>{formatBookingDay(booking.date)}</strong><span>AGO</span></div><div className="booking-card__content"><div><h3>{booking.court || 'Cancha'}</h3><p>{booking.date} <span className="dot-separator">·</span> {booking.time}</p></div><span className="status-pill"><span /> {booking.status || 'Confirmado'}</span><div className="booking-card__meta"><span>{booking.type || 'Turno'}</span><strong>{booking.price ? formatARS(booking.price) : '—'}</strong></div></div><Icon name="chevron" size={18} /></button>)}</div>{!bookings.length && <div className="empty-state"><PitchMark compact /><h3>Todavía no hay turnos</h3><p>Cuando reserves una cancha, aparece acá.</p></div>}</> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus próximos partidos</h3><p>Ingresá con Google para consultar tu historial y reservar.</p><button className="primary-button" type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></button></div>}</main></div>;
+}
+
+function SimplePage({ kind, onChange, session, onLogin, onLogout }) {
+  const content = { saved: ['TUS CANCHAS', 'Guardados', 'Las canchas que querés tener a mano para el próximo partido.'], profile: ['TU CUENTA', 'Perfil', session ? `${session.user.name} · ${session.user.email}` : 'Ingresá con Google para crear tu perfil.'] }[kind];
+  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={onLogin}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">{content[0]}</span><h1>{content[1]}</h1><p>{content[2]}</p></section><div className="quiet-panel"><PitchMark compact /><h3>{session ? 'Tu cuenta está lista' : 'Ingresá con Google'}</h3><p>{session ? 'Desde acá vas a poder consultar tus datos y próximos turnos.' : 'Podés explorar sin cuenta y registrarte al momento de reservar.'}</p>{session ? <button className="secondary-button" type="button" onClick={onLogout}>Cerrar sesión</button> : <button className="primary-button" type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></button>}</div></main></div>;
+}
+
+function dateForSelection(selection) {
+  return selection;
+}
+
+function mapApiCourt(court) {
+  return {
+    id: Number(court.id),
+    name: court.nombre,
+    neighborhood: court.barrio,
+    distance: court.direccion || 'CABA',
+    type: court.tipo,
+    surface: court.superficie,
+    price: Number(court.precio_desde || 0),
+    description: court.descripcion || 'Una cancha lista para tu próximo partido.',
+    indoor: court.indoor,
+    accent: 'green',
+    rating: '—',
+    reviews: 0,
+    amenities: ['Vestuarios', 'Iluminación', court.indoor ? 'Indoor' : 'A cielo abierto'],
+    slots: [],
+    slotPrices: {},
+  };
 }
 
 export default function Reservas() {
-  const [nombre, setNombre] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [fecha, setFecha] = useState('');
-  const [hora, setHora] = useState('');
-  const [reservasOcupadas, setReservasOcupadas] = useState([]);
-  const [bloqueos, setBloqueos] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [guardando, setGuardando] = useState(false);
+  const { data: session, isPending } = authClient.useSession();
+  const [screen, setScreen] = useState('explore');
+  const [courts, setCourts] = useState([]);
+  const [courtsLoaded, setCourtsLoaded] = useState(false);
+  const [selectedCourt, setSelectedCourt] = useState(mockCourts[0]);
+  const [selectedDate, setSelectedDate] = useState(dateOptions[0].value);
+  const [selectedTime, setSelectedTime] = useState('');
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [surfaceFilter, setSurfaceFilter] = useState('');
+  const [saved, setSaved] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [form, setForm] = useState({ name: '', phone: '' });
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([apiFetch('/api/reservas'), apiFetch('/api/bloqueos')])
-      .then(async ([reservasResponse, bloqueosResponse]) => {
-        if (!reservasResponse.ok) throw new Error(await readError(reservasResponse, 'No se pudo cargar la disponibilidad'));
-        if (!bloqueosResponse.ok) throw new Error(await readError(bloqueosResponse, 'No se pudo cargar los días bloqueados'));
-        setReservasOcupadas(await reservasResponse.json());
-        setBloqueos((await bloqueosResponse.json()).map((item) => item.fecha));
-      })
-      .catch((requestError) => setError(requestError.message))
-      .finally(() => setCargando(false));
+    apiFetch('/api/canchas').then(readApiResponse).then((items) => setCourts(items.map(mapApiCourt))).catch(() => setCourts([])).finally(() => setCourtsLoaded(true));
   }, []);
 
-  const fechaBloqueada = bloqueos.includes(fecha);
-  const horariosDisponibles = useMemo(
-    () => new Set(reservasOcupadas.filter((reserva) => reserva.fecha === fecha).map((reserva) => reserva.hora)),
-    [fecha, reservasOcupadas],
-  );
+  useEffect(() => {
+    if (!session?.user) return;
+    apiFetch('/api/mis-reservas').then(readApiResponse).then((items) => setBookings(items.map((item) => ({
+      id: item.id,
+      court: item.cancha,
+      neighborhood: item.barrio,
+      date: item.fecha,
+      time: item.hora,
+      type: item.tipo,
+      status: item.estado === 'confirmada' ? 'Confirmado' : item.estado,
+      price: item.precio_ars,
+    })))).catch(() => setBookings([]));
+  }, [session]);
 
-  const reservar = async () => {
-    setError('');
-    if (!nombre.trim() || !telefono || !fecha || !hora) return setError('Completá todos los campos');
-    if (!/^[0-9]{7,15}$/.test(telefono)) return setError('El teléfono debe tener entre 7 y 15 números');
-    if (fechaBloqueada) return setError('El día seleccionado está bloqueado');
-    if (horariosDisponibles.has(hora)) return setError('Ese horario ya está reservado');
-    setGuardando(true);
+  useEffect(() => {
+    if (!session?.user || !courtsLoaded) return;
+    const pending = sessionStorage.getItem('pending-booking');
+    if (!pending) return;
     try {
-      const response = await apiFetch('/api/reservas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre, telefono, fecha, hora }),
+      const draft = JSON.parse(pending);
+      const court = courts.find((item) => String(item.id) === String(draft.courtId));
+      const timer = window.setTimeout(() => {
+        if (court) setSelectedCourt(court);
+        setSelectedDate(draft.date || dateOptions[0].value);
+        setSelectedTime(draft.time);
+        sessionStorage.removeItem('pending-booking');
+        setScreen(court ? 'booking' : 'explore');
+      }, 0);
+      return () => window.clearTimeout(timer);
+    } catch {
+      sessionStorage.removeItem('pending-booking');
+    }
+  }, [session, courts, courtsLoaded]);
+
+  useEffect(() => {
+    if (screen !== 'detail' || !Number.isInteger(selectedCourt.id)) return;
+    let active = true;
+    apiFetch(`/api/canchas/${selectedCourt.id}/disponibilidad?fecha=${dateForSelection(selectedDate)}`)
+      .then(readApiResponse)
+      .then((availability) => {
+        if (!active) return;
+        const availableSlots = availability.slots.filter((slot) => slot.disponible);
+        const slotPrices = Object.fromEntries(availableSlots.map((slot) => [slot.hora, slot.precio]));
+        setSelectedCourt((current) => current.id === selectedCourt.id ? {
+          ...current,
+          slots: availableSlots.map((slot) => slot.hora),
+          slotPrices,
+          price: availableSlots.length ? Math.min(...availableSlots.map((slot) => slot.precio)) : current.price,
+        } : current);
+        setSelectedTime((current) => slotPrices[current] === undefined ? '' : current);
+      })
+      .catch(() => {
+        if (active) setSelectedCourt((current) => ({ ...current, slots: [], slotPrices: {} }));
       });
-      if (!response.ok) throw new Error(await readError(response, 'No se pudo guardar la reserva'));
-      const saved = await response.json();
-      setReservasOcupadas((current) => [...current, { fecha: saved.fecha || fecha, hora: saved.hora || hora }]);
-      setNombre(''); setTelefono(''); setFecha(''); setHora('');
-      window.alert('¡Reserva confirmada!');
+    return () => { active = false; };
+  }, [screen, selectedCourt.id, selectedDate]);
+
+  const loginWithGoogle = () => authClient.signIn.social({ provider: 'google', callbackURL: window.location.href });
+  const openCourt = (court) => {
+    setSelectedCourt(court);
+    setSelectedTime('');
+    setScreen('detail');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const toggleSaved = (id) => setSaved((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const beginBooking = () => {
+    setError('');
+    if (!session?.user) {
+      sessionStorage.setItem('pending-booking', JSON.stringify({ courtId: selectedCourt.id, date: selectedDate, time: selectedTime }));
+      return loginWithGoogle();
+    }
+    setScreen('booking');
+  };
+  const confirmBooking = async () => {
+    const bookingName = form.name.trim() || session?.user?.name?.trim();
+    if (!bookingName || form.phone.replace(/\D/g, '').length < 8) return setError('Completá tu nombre y un WhatsApp válido.');
+    try {
+      const result = await readApiResponse(await apiFetch('/api/reservas', {
+        method: 'POST',
+        body: JSON.stringify({ nombre: bookingName, telefono: form.phone, fecha: dateForSelection(selectedDate), hora: selectedTime, cancha_id: selectedCourt.id }),
+      }));
+      setBookings((current) => [{ id: result.id, court: selectedCourt.name, neighborhood: selectedCourt.neighborhood, date: result.fecha, time: result.hora, type: selectedCourt.type, status: 'Confirmado', price: result.precio_ars || selectedCourt.price }, ...current]);
+      setScreen('success');
     } catch (requestError) {
       setError(requestError.message);
-    } finally {
-      setGuardando(false);
     }
   };
-
-  return (
-    <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md bg-neutral-900/50 backdrop-blur-xl border border-neutral-800 rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(34,197,94,0.15)]">
-        <h1 className="text-3xl font-extrabold text-white mb-2 tracking-tight">Reservar Cancha</h1>
-        <p className="text-neutral-400 mb-6">Elegí una fecha y un horario disponible.</p>
-        {error && <p role="alert" className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
-        {cargando && <p className="mb-4 text-sm text-neutral-400">Cargando disponibilidad...</p>}
-        <input className="w-full p-4 mb-4 bg-neutral-950 border border-neutral-800 rounded-2xl outline-none focus:border-green-500 transition-all" placeholder="Tu nombre" value={nombre} onChange={(event) => setNombre(event.target.value)} />
-        <input className="w-full p-4 mb-4 bg-neutral-950 border border-neutral-800 rounded-2xl outline-none focus:border-green-500 transition-all" placeholder="Teléfono" type="tel" inputMode="numeric" value={telefono} onChange={(event) => setTelefono(event.target.value.replace(/[^0-9]/g, ''))} />
-        <input className="w-full p-4 mb-4 bg-neutral-950 border border-neutral-800 rounded-2xl outline-none focus:border-green-500 transition-all" type="date" min={todayLocal()} value={fecha} onChange={(event) => { setFecha(event.target.value); setHora(''); }} />
-        {fechaBloqueada && <p className="mb-4 text-sm text-amber-300">Ese día no recibe reservas.</p>}
-        <div className="grid grid-cols-3 gap-3 mb-8">
-          {horarios.map((horario) => {
-            const ocupado = horariosDisponibles.has(horario);
-            const buttonClass = 'py-2 rounded-xl text-[10px] font-semibold border transition-all ' + (hora === horario ? 'bg-green-500 border-green-500 text-black' : ocupado || fechaBloqueada ? 'bg-neutral-900 border-neutral-800 text-neutral-700 cursor-not-allowed opacity-50' : 'bg-neutral-950 border-neutral-800 hover:border-neutral-600');
-            return <button key={horario} type="button" disabled={ocupado || fechaBloqueada || cargando} onClick={() => setHora(horario)} className={buttonClass}>{horario}</button>;
-          })}
-        </div>
-        <button type="button" disabled={guardando || cargando} onClick={reservar} className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all disabled:cursor-wait disabled:opacity-60">{guardando ? 'Guardando...' : 'Confirmar Reserva'}</button>
-      </div>
-    </div>
-  );
+  const backToExplore = () => { setScreen('explore'); setSelectedTime(''); setForm((current) => ({ ...current, phone: '' })); };
+  const logout = async () => { await authClient.signOut(); setScreen('explore'); };
+  if (isPending) return <div className="quiet-panel">Cargando tu sesión…</div>;
+  if (screen === 'detail') return <><DetailScreen court={selectedCourt} date={selectedDate} setDate={setSelectedDate} time={selectedTime} setTime={setSelectedTime} onBack={backToExplore} onReserve={beginBooking} saved={saved} onToggleSaved={toggleSaved} /><BottomNav current="explore" onChange={setScreen} /></>;
+  if (screen === 'booking') return <BookingScreen court={selectedCourt} date={selectedDate} time={selectedTime} form={form} setForm={setForm} onBack={() => setScreen('detail')} onConfirm={confirmBooking} error={error} defaultName={session?.user?.name} />;
+  if (screen === 'success') return <SuccessScreen court={selectedCourt} date={selectedDate} time={selectedTime} onDone={backToExplore} />;
+  const openAccount = () => session?.user ? setScreen('profile') : loginWithGoogle();
+  if (screen === 'bookings') return <><BookingsScreen bookings={bookings} onOpen={openCourt} onChange={setScreen} session={session} onLogin={loginWithGoogle} /><BottomNav current="bookings" onChange={setScreen} /></>;
+  if (screen === 'saved' || screen === 'profile') return <><SimplePage kind={screen} onChange={setScreen} session={session} onLogin={openAccount} onLogout={logout} /><BottomNav current={screen} onChange={setScreen} /></>;
+  return <><ExploreScreen courts={courts} query={query} setQuery={setQuery} selectedDate={selectedDate} setSelectedDate={setSelectedDate} typeFilter={typeFilter} setTypeFilter={setTypeFilter} surfaceFilter={surfaceFilter} setSurfaceFilter={setSurfaceFilter} onOpen={openCourt} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} /><BottomNav current="explore" onChange={setScreen} /></>;
 }
