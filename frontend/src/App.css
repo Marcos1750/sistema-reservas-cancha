@@ -172,3 +172,5 @@ body { min-width: 0; overflow-x: clip; }
   .admin-slot-row label, .admin-slot-row .secondary-button { grid-column: span 1; }
   .admin-access-row { flex-wrap: wrap; }
 }
+.success-grid { pointer-events: none; }
+.success-screen > .primary-button { position: relative; z-index: 1; }
