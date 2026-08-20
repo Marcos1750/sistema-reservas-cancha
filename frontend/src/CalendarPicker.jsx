@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './icons';
 
 const weekDays = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'];
+const desktopPopoverWidth = 294;
 
 function isoDate(date) {
   const year = date.getFullYear();
@@ -23,9 +25,14 @@ function displayValue(value) {
   return new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(dateFromValue(value));
 }
 
-export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', compact = false, className = '' }) {
+export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', compact = false, compactValue = '', className = '' }) {
   const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+  const dialogId = useId();
   const [open, setOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, flipped: false });
   const [month, setMonth] = useState(() => new Date(dateFromValue(value).getFullYear(), dateFromValue(value).getMonth(), 1));
   const selected = value || '';
   const minimum = min || '';
@@ -33,11 +40,43 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
   useEffect(() => {
     if (!open) return undefined;
     const closeWhenOutside = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      if (!rootRef.current?.contains(event.target) && !popupRef.current?.contains(event.target)) setOpen(false);
     };
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setOpen(false); };
     document.addEventListener('pointerdown', closeWhenOutside);
-    return () => document.removeEventListener('pointerdown', closeWhenOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeWhenOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const updateOverlay = () => {
+      const mobile = window.matchMedia('(max-width: 700px)').matches;
+      setIsMobile(mobile);
+      if (mobile || !triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      const left = Math.min(Math.max(12, rect.right - desktopPopoverWidth), window.innerWidth - desktopPopoverWidth - 12);
+      const flipped = rect.bottom + 355 > window.innerHeight && rect.top > 355;
+      setPosition({ top: flipped ? rect.top - 9 : rect.bottom + 9, left, flipped });
+    };
+    updateOverlay();
+    window.addEventListener('resize', updateOverlay);
+    window.addEventListener('scroll', updateOverlay, true);
+    return () => {
+      window.removeEventListener('resize', updateOverlay);
+      window.removeEventListener('scroll', updateOverlay, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !isMobile) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [open, isMobile]);
 
   const days = useMemo(() => {
     const firstMondayOffset = (month.getDay() + 6) % 7;
@@ -53,7 +92,6 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
   };
 
   const shiftMonth = (amount) => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
-
   const toggle = () => {
     if (!open && value) {
       const next = dateFromValue(value);
@@ -62,12 +100,10 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
     setOpen((current) => !current);
   };
 
-  return <div ref={rootRef} className={`calendar-picker${compact ? ' calendar-picker--compact' : ''} ${className}`}>
-    <button className="calendar-picker__trigger" type="button" onClick={toggle} aria-haspopup="dialog" aria-expanded={open} aria-label={label}>
-      <Icon name="calendar" size={compact ? 18 : 17} />
-      {!compact && <span>{displayValue(value)}</span>}
-    </button>
-    {open && <div className="calendar-picker__popover" role="dialog" aria-label={label}>
+  const calendar = open ? createPortal(<div className="calendar-picker__layer">
+    {isMobile && <button className="calendar-picker__backdrop" type="button" aria-label="Cerrar calendario" onClick={() => setOpen(false)} />}
+    <div ref={popupRef} id={dialogId} className={`calendar-picker__popover${isMobile ? ' calendar-picker__popover--sheet' : ''}${position.flipped ? ' is-flipped' : ''}`} style={isMobile ? undefined : { top: position.top, left: position.left }} role="dialog" aria-modal={isMobile || undefined} aria-label={label} tabIndex="-1">
+      {isMobile && <div className="calendar-picker__handle" />}
       <div className="calendar-picker__header">
         <button type="button" onClick={() => shiftMonth(-1)} aria-label="Mes anterior"><Icon name="back" size={16} /></button>
         <strong>{monthLabel(month)}</strong>
@@ -81,6 +117,14 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
         const today = day === isoDate(new Date());
         return <button key={day} type="button" disabled={disabled} onClick={() => choose(date)} className={`${day === selected ? 'is-selected ' : ''}${today ? 'is-today' : ''}`}>{date.getDate()}</button>;
       })}</div>
-    </div>}
+    </div>
+  </div>, document.body) : null;
+
+  return <div ref={rootRef} className={`calendar-picker${compact ? ' calendar-picker--compact' : ''} ${className}`}>
+    <button ref={triggerRef} className="calendar-picker__trigger" type="button" onClick={toggle} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? dialogId : undefined} aria-label={label}>
+      <Icon name="calendar" size={compact ? 18 : 17} />
+      {compact ? compactValue && <span className="calendar-picker__compact-value" aria-hidden="true">{compactValue}</span> : <span>{displayValue(value)}</span>}
+    </button>
+    {calendar}
   </div>;
 }

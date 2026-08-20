@@ -136,3 +136,39 @@ h1, h2, h3, p { margin: 0; }.welcome-block h1, .page-heading h1 { max-width: 620
 .booking-content { width: min(100%, 620px); margin: 0 auto; }
 .date-rail { overflow: visible; }
 @media (max-width: 700px) { .date-rail { overflow-x: auto; overflow-y: hidden; }.date-rail .calendar-picker__popover { z-index: 30; } }
+.calendar-picker__layer { position: fixed; z-index: 100; inset: 0; pointer-events: none; }
+.calendar-picker__popover { position: fixed; z-index: 101; width: 294px; padding: 14px; pointer-events: auto; border: 1px solid rgba(183, 238, 85, .3); border-radius: 20px; background: #16241c; box-shadow: 0 22px 50px rgba(0, 0, 0, .5); }
+.calendar-picker__popover.is-flipped { transform: translateY(-100%); }
+.calendar-picker__backdrop, .calendar-picker__handle { display: none; }
+.date-rail { display: grid; grid-template-columns: repeat(3, 76px) 54px; width: max-content; overflow: visible; }
+.date-pill { min-width: 0; width: auto; }
+.date-rail .calendar-picker { width: 54px; }
+.date-rail .calendar-picker__trigger { width: 100%; }
+.date-rail .calendar-picker.is-selected .calendar-picker__trigger { border-color: var(--lime); background: var(--lime); color: var(--ink); }
+.calendar-picker__compact-value { font-size: 11px; font-weight: 800; }
+.sticky-cta--awaiting-selection p { margin: 0; color: var(--muted); font-size: 12px; font-weight: 700; }
+html, body, #root { max-width: 100%; }
+body { min-width: 0; overflow-x: clip; }
+.app-shell, .admin-shell, .admin-main, .detail-intro > div, .booking-summary > * { min-width: 0; max-width: 100%; }
+
+@media (max-width: 700px) {
+  .date-rail { grid-template-columns: repeat(3, minmax(0, 1fr)) 48px; width: 100%; gap: 7px; overflow: visible; }
+  .date-pill { min-height: 56px; padding: 8px 5px; text-align: center; }
+  .date-pill span { font-size: 11px; }
+  .date-pill small { font-size: 8px; }
+  .date-rail .calendar-picker { width: 48px; }
+  .calendar-picker__popover--sheet { right: auto; bottom: 0; left: 50%; width: min(100%, 560px); max-height: min(76dvh, 590px); padding: 12px 20px max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); border-radius: 24px 24px 0 0; box-shadow: 0 -18px 48px rgba(0, 0, 0, .45); }
+  .calendar-picker__backdrop { position: absolute; display: block; inset: 0; width: 100%; height: 100%; padding: 0; pointer-events: auto; border: 0; background: rgba(0, 0, 0, .62); backdrop-filter: blur(3px); }
+  .calendar-picker__handle { display: block; width: 38px; height: 4px; margin: 0 auto 12px; border-radius: 999px; background: rgba(244, 247, 242, .28); }
+  .calendar-picker__popover--sheet .calendar-picker__header { margin-bottom: 16px; }
+  .calendar-picker__popover--sheet .calendar-picker__days button { width: 39px; height: 39px; font-size: 14px; }
+  .admin-sidebar { flex-wrap: wrap; gap: 14px; padding: 16px; }
+  .admin-sidebar .brand { width: 100%; }
+  .admin-sidebar nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; margin-left: 0; gap: 5px; }
+  .admin-nav-item { min-width: 0; justify-content: center; padding: 0 5px; white-space: nowrap; }
+  .admin-main { padding: 26px 16px; }
+  .admin-split, .admin-form--inline { grid-template-columns: 1fr; }
+  .admin-slot-row { grid-template-columns: 1fr 1fr; }
+  .admin-slot-row label, .admin-slot-row .secondary-button { grid-column: span 1; }
+  .admin-access-row { flex-wrap: wrap; }
+}

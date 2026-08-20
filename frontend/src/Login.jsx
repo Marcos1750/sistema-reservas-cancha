@@ -13,7 +13,7 @@ function toDateValue(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-const dateOptions = Array.from({ length: 4 }, (_, offset) => {
+const dateOptions = Array.from({ length: 3 }, (_, offset) => {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
   date.setDate(date.getDate() + offset);
@@ -54,22 +54,12 @@ function BottomNav({ current, onChange }) {
   return <nav className="bottom-nav" aria-label="Navegación principal">{items.map(([id, label, icon]) => <button className={`bottom-nav__item${current === id ? ' is-active' : ''}`} key={id} type="button" onClick={() => onChange(id)}><Icon name={icon} size={19} strokeWidth={current === id ? 2.2 : 1.6} /><span>{label}</span></button>)}</nav>;
 }
 
-function customDateOption(value) {
-  const date = new Date(`${value}T12:00:00`);
-  return {
-    value,
-    label: new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric' }).format(date),
-    sublabel: new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: 'short' }).format(date).toUpperCase(),
-  };
-}
-
 function DateRail({ selected, onSelect }) {
-  const visibleDates = dateOptions.some((date) => date.value === selected)
-    ? dateOptions
-    : [...dateOptions, customDateOption(selected)];
+  const isQuickDate = dateOptions.some((date) => date.value === selected);
+  const customDay = isQuickDate ? '' : String(dateFromValue(selected).getDate());
   return <div className="date-rail" role="tablist" aria-label="Elegí una fecha">
-    {visibleDates.map((date) => <Button className={selected === date.value ? 'date-pill is-selected' : 'date-pill'} variant={selected === date.value ? 'chipActive' : 'chip'} key={date.value} type="button" role="tab" aria-selected={selected === date.value} onClick={() => onSelect(date.value)}><span>{date.label}</span><small>{date.sublabel}</small></Button>)}
-    <CalendarPicker compact label="Elegir otra fecha" value={selected} onChange={onSelect} min={dateOptions[0].value} />
+    {dateOptions.map((date) => <Button className={selected === date.value ? 'date-pill is-selected' : 'date-pill'} variant={selected === date.value ? 'chipActive' : 'chip'} key={date.value} type="button" role="tab" aria-selected={selected === date.value} onClick={() => onSelect(date.value)}><span>{date.label}</span><small>{date.sublabel}</small></Button>)}
+    <CalendarPicker compact className={isQuickDate ? '' : 'is-selected'} compactValue={customDay} label={isQuickDate ? 'Elegir otra fecha' : `Fecha elegida: ${selected}`} value={selected} onChange={onSelect} min={dateOptions[0].value} />
   </div>;
 }
 
@@ -88,7 +78,7 @@ function ExploreScreen({ courts, query, setQuery, onOpen, saved, onToggleSaved, 
 
 function DetailScreen({ court, date, setDate, time, setTime, onBack, onReserve, saved, onToggleSaved }) {
   const displayPrice = court.slotPrices?.[time] ?? court.price;
-  return <div className="app-shell app-shell--detail"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(court.id) ? ' is-saved' : ''}`} type="button" onClick={() => onToggleSaved(court.id)} aria-label="Guardar cancha"><Icon name="heart" size={18} /></button></header><main className="detail-content"><CourtPlaceholder court={court} large /><div className="detail-intro"><div><span className="detail-eyebrow">PREDIO SELECCIONADO</span><h1>{court.name}</h1><p><Icon name="pin" size={14} /> {court.city}, {court.province} <span className="dot-separator">·</span> {court.address}</p></div><span className="rating-badge"><Icon name="star" size={13} /> {court.rating}</span></div><p className="detail-description">{court.description}</p><div className="amenity-row">{court.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} /><div className="time-grid">{court.slots.map((slot) => <button className={`time-slot${time === slot ? ' is-selected' : ''}`} key={slot} type="button" onClick={() => setTime(slot)}><Icon name="clock" size={14} /> {slot}</button>)}</div></section></main><div className="sticky-cta"><div><small>{time ? 'Total del turno' : 'Desde'}</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div><Button className="primary-button" type="button" disabled={!time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div>;
+  return <div className="app-shell app-shell--detail"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(court.id) ? ' is-saved' : ''}`} type="button" onClick={() => onToggleSaved(court.id)} aria-label="Guardar cancha"><Icon name="heart" size={18} /></button></header><main className="detail-content"><CourtPlaceholder court={court} large /><div className="detail-intro"><div><span className="detail-eyebrow">PREDIO SELECCIONADO</span><h1>{court.name}</h1><p><Icon name="pin" size={14} /> {court.city}, {court.province} <span className="dot-separator">·</span> {court.address}</p></div><span className="rating-badge"><Icon name="star" size={13} /> {court.rating}</span></div><p className="detail-description">{court.description}</p><div className="amenity-row">{court.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} /><div className="time-grid">{court.slots.map((slot) => <button className={`time-slot${time === slot ? ' is-selected' : ''}`} key={slot} type="button" onClick={() => setTime(slot)}><Icon name="clock" size={14} /> {slot}</button>)}</div></section></main><div className={`sticky-cta${time ? '' : ' sticky-cta--awaiting-selection'}`}>{time ? <div><small>Total del turno</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div> : <p>Elegí un horario para ver el total.</p>}<Button className="primary-button" type="button" disabled={!time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div>;
 }
 
 function BookingScreen({ court, date, time, form, setForm, repeatWeekly, setRepeatWeekly, repeatWeeks, setRepeatWeeks, onBack, onConfirm, error, defaultName, defaultPhone }) {
