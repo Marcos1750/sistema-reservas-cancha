@@ -18,6 +18,7 @@ const PORT = Number(process.env.PORT) || 3001;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIST = path.resolve(__dirname, '../frontend/dist');
 const CANCELLATION_WINDOW_MS = 2 * 60 * 60 * 1000;
+const DEPORTES = ['Fútbol 5', 'Pádel', 'Tenis'];
 
 app.disable('x-powered-by');
 
@@ -68,16 +69,18 @@ function validateReservation(body) {
 
 function validateCourt(body) {
   const nombre = cleanText(body.nombre, 120);
-  const barrio = cleanText(body.barrio, 100);
+  const ciudad = cleanText(body.ciudad, 100);
+  const provincia = cleanText(body.provincia, 100);
   const direccion = cleanText(body.direccion, 180);
-  const tipo = cleanText(body.tipo || 'Fútbol 5', 40);
-  const superficie = cleanText(body.superficie || 'Césped sintético', 80);
+  const deporte = cleanText(body.deporte || 'Fútbol 5', 40);
   const descripcion = cleanText(body.descripcion || '', 500);
   const whatsapp = normalizeWhatsApp(body.whatsapp || '');
   const indoor = Boolean(body.indoor);
-  if (nombre.length < 2 || !barrio) return { error: 'Nombre y barrio son obligatorios' };
+  if (nombre.length < 2 || !ciudad || !provincia || !DEPORTES.includes(deporte)) {
+    return { error: 'Nombre, ciudad, provincia y deporte son obligatorios' };
+  }
   if (!whatsapp) return { error: 'Ingresá un WhatsApp válido con código de país, por ejemplo 54911...' };
-  return { nombre, barrio, direccion, tipo, superficie, descripcion, whatsapp, indoor };
+  return { nombre, ciudad, provincia, direccion, deporte, descripcion, whatsapp, indoor };
 }
 
 function validateProfile(body) {
@@ -216,7 +219,7 @@ app.put('/api/perfil', requireAuth(), async (req, res, next) => {
 app.get('/api/canchas', async (_req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.id, c.nombre, c.barrio, c.direccion, c.tipo, c.superficie,
+      `SELECT c.id, c.nombre, c.ciudad, c.provincia, c.direccion, c.deporte,
               c.descripcion, c.indoor, COALESCE(MIN(h.precio_ars), 0) AS precio_desde
          FROM canchas c
          LEFT JOIN horarios_cancha h ON h.cancha_id = c.id AND h.activo = true
@@ -350,7 +353,7 @@ app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars,
               r.estado, r.created_at, c.id AS cancha_id, c.nombre AS cancha,
-              c.barrio, c.tipo, c.superficie, c.whatsapp
+              c.ciudad, c.provincia, c.deporte, c.whatsapp
          FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id
         WHERE r.user_id = $1 ORDER BY r.fecha, r.hora`,
       [req.user.id],
@@ -409,9 +412,9 @@ app.post('/api/admin/canchas', requireAnyAdmin, async (req, res, next) => {
   if (court.error) return res.status(400).json(court);
   try {
     const { rows } = await pool.query(
-      `INSERT INTO canchas (owner_user_id, nombre, barrio, direccion, whatsapp, tipo, superficie, descripcion, indoor)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [req.user.id, court.nombre, court.barrio, court.direccion, court.whatsapp, court.tipo, court.superficie, court.descripcion, court.indoor],
+      `INSERT INTO canchas (owner_user_id, nombre, ciudad, provincia, direccion, whatsapp, deporte, descripcion, indoor, barrio, tipo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$3,$7) RETURNING *`,
+      [req.user.id, court.nombre, court.ciudad, court.provincia, court.direccion, court.whatsapp, court.deporte, court.descripcion, court.indoor],
     );
     res.status(201).json(rows[0]);
   } catch (error) {
@@ -424,10 +427,10 @@ app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, re
   if (court.error) return res.status(400).json(court);
   try {
     const { rows } = await pool.query(
-      `UPDATE canchas SET nombre=$1,barrio=$2,direccion=$3,whatsapp=$4,tipo=$5,superficie=$6,
-              descripcion=$7,indoor=$8,activa=COALESCE($9, activa),updated_at=NOW()
+      `UPDATE canchas SET nombre=$1,ciudad=$2,provincia=$3,direccion=$4,whatsapp=$5,deporte=$6,
+              descripcion=$7,indoor=$8,activa=COALESCE($9, activa),barrio=$2,tipo=$6,updated_at=NOW()
         WHERE id=$10 RETURNING *`,
-      [court.nombre, court.barrio, court.direccion, court.whatsapp, court.tipo, court.superficie, court.descripcion, court.indoor, req.body.activa, req.params.id],
+      [court.nombre, court.ciudad, court.provincia, court.direccion, court.whatsapp, court.deporte, court.descripcion, court.indoor, req.body.activa, req.params.id],
     );
     res.json(rows[0]);
   } catch (error) {
@@ -437,7 +440,11 @@ app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, re
 
 app.delete('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, res, next) => {
   try {
-    await pool.query('UPDATE canchas SET activa = false, updated_at = NOW() WHERE id = $1', [req.params.id]);
+    const history = await pool.query('SELECT 1 FROM reservas WHERE cancha_id = $1 LIMIT 1', [req.params.id]);
+    if (history.rowCount) {
+      return res.status(409).json({ error: 'No se puede eliminar esta cancha porque tiene reservas en su historial.' });
+    }
+    await pool.query('DELETE FROM canchas WHERE id = $1', [req.params.id]);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -537,7 +544,7 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
     }
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars,
-              r.estado, r.created_at, c.nombre AS cancha
+              r.estado, r.created_at, c.nombre AS cancha, c.ciudad, c.provincia, c.deporte
          FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id ${filter}
         ORDER BY r.fecha, r.hora`,
       params,
@@ -702,4 +709,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, canCustomerCancel, prepare, start, validateProfile, validateReservation };
+export { app, canCustomerCancel, prepare, start, validateCourt, validateProfile, validateReservation };

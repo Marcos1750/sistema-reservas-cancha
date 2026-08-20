@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Icon, PitchMark } from './icons';
+import { CalendarPicker } from './CalendarPicker';
 import { formatARS, mockCourts } from './mockData';
 import { authClient } from './authClient';
 import { apiFetch, readApiResponse } from './api';
@@ -39,13 +40,13 @@ function CourtPlaceholder({ court, large = false }) {
         <span className="court-placeholder__spot court-placeholder__spot--left" />
         <span className="court-placeholder__spot court-placeholder__spot--right" />
       </div>
-      <div className="court-placeholder__meta"><span>EL PATIO / {court.type.replace('Fútbol ', 'F')}</span><span>{court.indoor ? 'INDOOR' : 'OPEN AIR'}</span></div>
+      <div className="court-placeholder__meta"><span>NEW MATCH / {court.sport.replace('Fútbol ', 'F')}</span><span>{court.indoor ? 'INDOOR' : 'OPEN AIR'}</span></div>
     </div>
   );
 }
 
 function Brand({ onClick }) {
-  return <button className="brand" type="button" onClick={onClick} aria-label="Volver a explorar"><PitchMark /><span>el patio</span></button>;
+  return <button className="brand" type="button" onClick={onClick} aria-label="Volver a explorar"><PitchMark /><span>NEW MATCH</span></button>;
 }
 
 function BottomNav({ current, onChange }) {
@@ -63,40 +64,31 @@ function customDateOption(value) {
 }
 
 function DateRail({ selected, onSelect }) {
-  const dateInputRef = useRef(null);
   const visibleDates = dateOptions.some((date) => date.value === selected)
     ? dateOptions
     : [...dateOptions, customDateOption(selected)];
-  const openDatePicker = () => {
-    const input = dateInputRef.current;
-    if (!input) return;
-    if (typeof input.showPicker === 'function') input.showPicker();
-    else input.click();
-  };
-
   return <div className="date-rail" role="tablist" aria-label="Elegí una fecha">
     {visibleDates.map((date) => <Button className={selected === date.value ? 'date-pill is-selected' : 'date-pill'} variant={selected === date.value ? 'chipActive' : 'chip'} key={date.value} type="button" role="tab" aria-selected={selected === date.value} onClick={() => onSelect(date.value)}><span>{date.label}</span><small>{date.sublabel}</small></Button>)}
-    <Button className="date-pill date-pill--calendar" variant="chip" type="button" aria-label="Elegir otra fecha" onClick={openDatePicker}><Icon name="calendar" size={18} /></Button>
-    <input ref={dateInputRef} className="date-picker-native" type="date" min={dateOptions[0].value} value={selected} onChange={(event) => event.target.value && onSelect(event.target.value)} aria-label="Elegir otra fecha" />
+    <CalendarPicker compact label="Elegir otra fecha" value={selected} onChange={onSelect} min={dateOptions[0].value} />
   </div>;
 }
 
 function CourtCard({ court, onOpen, isSaved, onToggleSaved }) {
-  return <Card asChild className="court-card"><article><button className="court-card__visual-button" type="button" onClick={() => onOpen(court)} aria-label={`Ver detalles de ${court.name}`}><CourtPlaceholder court={court} /></button><div className="court-card__body"><div className="court-card__heading"><div><h3>{court.name}</h3><p><Icon name="pin" size={13} /> {court.neighborhood} <span className="dot-separator">·</span> {court.distance}</p></div><Button className={`icon-button${isSaved ? ' is-saved' : ''}`} variant="ghost" size="icon" type="button" onClick={() => onToggleSaved(court.id)} aria-label={isSaved ? 'Quitar de guardados' : 'Guardar cancha'}><Icon name="heart" size={18} /></Button></div><div className="court-card__facts"><Badge variant="accent"><Icon name="star" size={13} /> {court.rating} <small>({court.reviews})</small></Badge><Badge>{court.type}</Badge><Badge>{court.surface}</Badge></div><div className="court-card__footer"><div><small>Desde</small><strong>{formatARS(court.price)}</strong></div><Button className="text-button" variant="ghost" size="sm" type="button" onClick={() => onOpen(court)}>Ver horarios <Icon name="arrow" size={15} /></Button></div></div></article></Card>;
+  return <Card asChild className="court-card"><article><button className="court-card__visual-button" type="button" onClick={() => onOpen(court)} aria-label={`Ver detalles de ${court.name}`}><CourtPlaceholder court={court} /></button><div className="court-card__body"><div className="court-card__heading"><div><h3>{court.name}</h3><p><Icon name="pin" size={13} /> {court.city}, {court.province} <span className="dot-separator">·</span> {court.address}</p></div><Button className={`icon-button${isSaved ? ' is-saved' : ''}`} variant="ghost" size="icon" type="button" onClick={() => onToggleSaved(court.id)} aria-label={isSaved ? 'Quitar de guardados' : 'Guardar cancha'}><Icon name="heart" size={18} /></Button></div><div className="court-card__facts"><Badge variant="accent"><Icon name="star" size={13} /> {court.rating} <small>({court.reviews})</small></Badge><Badge>{court.sport}</Badge><Badge>{court.indoor ? 'Indoor' : 'A cielo abierto'}</Badge></div><div className="court-card__footer"><div><small>Desde</small><strong>{formatARS(court.price)}</strong></div><Button className="text-button" variant="ghost" size="sm" type="button" onClick={() => onOpen(court)}>Ver horarios <Icon name="arrow" size={15} /></Button></div></div></article></Card>;
 }
 
-function ExploreScreen({ courts, query, setQuery, selectedDate, setSelectedDate, typeFilter, setTypeFilter, surfaceFilter, setSurfaceFilter, onOpen, saved, onToggleSaved, session, onLogin }) {
+function ExploreScreen({ courts, query, setQuery, selectedDate, setSelectedDate, onOpen, saved, onToggleSaved, session, onLogin, canManage }) {
   const filteredCourts = useMemo(() => courts.filter((court) => {
-    const text = `${court.name} ${court.neighborhood}`.toLowerCase();
-    return text.includes(query.toLowerCase()) && (!typeFilter || court.type === typeFilter) && (!surfaceFilter || court.surface === surfaceFilter);
-  }), [courts, query, typeFilter, surfaceFilter]);
+    const text = `${court.name} ${court.city} ${court.province}`.toLowerCase();
+    return text.includes(query.toLowerCase());
+  }), [courts, query]);
   const initials = session?.user?.name?.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'GO';
-  return <div className="app-shell"><header className="app-header"><Brand /><button className="avatar-button" type="button" aria-label="Abrir perfil" onClick={onLogin}>{initials}</button></header><main className="main-content"><section className="welcome-block"><div className="location-line"><Icon name="pin" size={14} /> <span>Palermo, CABA</span><Icon name="down" size={13} /></div><h1>Tu próximo partido,<br /><em>a un toque.</em></h1><p>Encontrá un turno que encaje con tu semana.</p></section><div className="search-field"><Icon name="search" size={19} /><Input aria-label="Buscar canchas" placeholder="Buscar por cancha o barrio" value={query} onChange={(event) => setQuery(event.target.value)} /><kbd>⌘ K</kbd></div><section className="filter-section"><div className="section-label"><span>Fecha del partido</span><Button type="button" variant="ghost" size="sm" className="inline-action">Ver calendario <Icon name="arrow" size={13} /></Button></div><DateRail selected={selectedDate} onSelect={setSelectedDate} /><div className="filter-row"><Button className={typeFilter ? 'filter-chip is-active' : 'filter-chip'} variant={typeFilter ? 'chipActive' : 'chip'} type="button" onClick={() => setTypeFilter(typeFilter ? '' : 'Fútbol 5')}>Fútbol 5 <Icon name="down" size={13} /></Button><Button className={surfaceFilter ? 'filter-chip is-active' : 'filter-chip'} variant={surfaceFilter ? 'chipActive' : 'chip'} type="button" onClick={() => setSurfaceFilter(surfaceFilter ? '' : 'Césped sintético')}>Césped sintético <Icon name="down" size={13} /></Button><Button className="filter-chip filter-chip--icon" variant="chip" type="button" aria-label="Más filtros"><Icon name="filter" size={16} /></Button></div></section><section className="courts-section"><div className="section-heading"><div><span className="section-kicker">CERCA TUYO</span><h2>Canchas cerca tuyo</h2></div><span className="result-count">{filteredCourts.length} opciones</span></div>{filteredCourts.length ? <div className="court-list">{filteredCourts.map((court) => <CourtCard key={court.id} court={court} onOpen={onOpen} isSaved={saved.includes(court.id)} onToggleSaved={onToggleSaved} />)}</div> : <div className="empty-state"><PitchMark compact /><h3>No encontramos esa cancha</h3><p>Probá con otro barrio o limpiá los filtros.</p><Button variant="secondary" size="sm" type="button" onClick={() => { setQuery(''); setTypeFilter(''); setSurfaceFilter(''); }}>Limpiar filtros</Button></div>}</section></main></div>;
+  return <div className="app-shell"><header className="app-header"><Brand />{canManage && <a className="admin-entry" href="/admin"><Icon name="pitch" size={16} /> Administrar canchas</a>}<button className="avatar-button" type="button" aria-label="Abrir perfil" onClick={onLogin}>{initials}</button></header><main className="main-content"><section className="welcome-block"><div className="location-line"><Icon name="pin" size={14} /> <span>Santa Fe, Argentina</span></div><h1>Tu próximo partido,<br /><em>a un toque.</em></h1><p>Encontrá un turno que encaje con tu semana.</p></section><div className="search-field"><Icon name="search" size={19} /><Input aria-label="Buscar canchas" placeholder="Buscar por cancha, ciudad o provincia" value={query} onChange={(event) => setQuery(event.target.value)} /><kbd>⌘ K</kbd></div><section className="filter-section"><div className="section-label"><span>Fecha del partido</span></div><DateRail selected={selectedDate} onSelect={setSelectedDate} /></section><section className="courts-section"><div className="section-heading"><div><span className="section-kicker">CANCHAS DISPONIBLES</span><h2>Elegí dónde jugar</h2></div><span className="result-count">{filteredCourts.length} opciones</span></div>{filteredCourts.length ? <div className="court-list">{filteredCourts.map((court) => <CourtCard key={court.id} court={court} onOpen={onOpen} isSaved={saved.includes(court.id)} onToggleSaved={onToggleSaved} />)}</div> : <div className="empty-state"><PitchMark compact /><h3>No encontramos esa cancha</h3><p>Probá con otra ciudad o limpiá la búsqueda.</p><Button variant="secondary" size="sm" type="button" onClick={() => setQuery('')}>Limpiar búsqueda</Button></div>}</section></main></div>;
 }
 
 function DetailScreen({ court, date, setDate, time, setTime, onBack, onReserve, saved, onToggleSaved }) {
   const displayPrice = court.slotPrices?.[time] ?? court.price;
-  return <div className="app-shell app-shell--detail"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(court.id) ? ' is-saved' : ''}`} type="button" onClick={() => onToggleSaved(court.id)} aria-label="Guardar cancha"><Icon name="heart" size={18} /></button></header><main className="detail-content"><CourtPlaceholder court={court} large /><div className="detail-intro"><div><span className="detail-eyebrow">PREDIO SELECCIONADO</span><h1>{court.name}</h1><p><Icon name="pin" size={14} /> {court.neighborhood} <span className="dot-separator">·</span> {court.distance}</p></div><span className="rating-badge"><Icon name="star" size={13} /> {court.rating}</span></div><p className="detail-description">{court.description}</p><div className="amenity-row">{court.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} /><div className="time-grid">{court.slots.map((slot) => <button className={`time-slot${time === slot ? ' is-selected' : ''}`} key={slot} type="button" onClick={() => setTime(slot)}><Icon name="clock" size={14} /> {slot}</button>)}</div></section></main><div className="sticky-cta"><div><small>{time ? 'Total del turno' : 'Desde'}</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div><Button className="primary-button" type="button" disabled={!time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div>;
+  return <div className="app-shell app-shell--detail"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(court.id) ? ' is-saved' : ''}`} type="button" onClick={() => onToggleSaved(court.id)} aria-label="Guardar cancha"><Icon name="heart" size={18} /></button></header><main className="detail-content"><CourtPlaceholder court={court} large /><div className="detail-intro"><div><span className="detail-eyebrow">PREDIO SELECCIONADO</span><h1>{court.name}</h1><p><Icon name="pin" size={14} /> {court.city}, {court.province} <span className="dot-separator">·</span> {court.address}</p></div><span className="rating-badge"><Icon name="star" size={13} /> {court.rating}</span></div><p className="detail-description">{court.description}</p><div className="amenity-row">{court.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} /><div className="time-grid">{court.slots.map((slot) => <button className={`time-slot${time === slot ? ' is-selected' : ''}`} key={slot} type="button" onClick={() => setTime(slot)}><Icon name="clock" size={14} /> {slot}</button>)}</div></section></main><div className="sticky-cta"><div><small>{time ? 'Total del turno' : 'Desde'}</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div><Button className="primary-button" type="button" disabled={!time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div>;
 }
 
 function BookingScreen({ court, date, time, form, setForm, onBack, onConfirm, error, defaultName, defaultPhone }) {
@@ -105,14 +97,14 @@ function BookingScreen({ court, date, time, form, setForm, onBack, onConfirm, er
 }
 
 function SuccessScreen({ court, date, time, onDone }) {
-  return <div className="success-screen"><div className="success-grid" /><div className="success-mark"><Icon name="check" size={28} /></div><span className="section-kicker">RESERVA CONFIRMADA</span><h1>El partido ya<br /><em>tiene cancha.</em></h1><p>{court.name}<br />{date} a las {time}</p><div className="success-ticket"><div><small>UBICACIÓN</small><strong>{court.neighborhood}</strong></div><div><small>TIPO</small><strong>{court.type}</strong></div><div><small>TOTAL</small><strong>{formatARS(court.price)}</strong></div></div><button className="primary-button" type="button" onClick={onDone}>Volver a explorar <Icon name="arrow" size={17} /></button></div>;
+  return <div className="success-screen"><div className="success-grid" /><div className="success-mark"><Icon name="check" size={28} /></div><span className="section-kicker">RESERVA CONFIRMADA</span><h1>El partido ya<br /><em>tiene cancha.</em></h1><p>{court.name}<br />{date} a las {time}</p><div className="success-ticket"><div><small>UBICACIÓN</small><strong>{court.city}, {court.province}</strong></div><div><small>DEPORTE</small><strong>{court.sport}</strong></div><div><small>TOTAL</small><strong>{formatARS(court.price)}</strong></div></div><button className="primary-button" type="button" onClick={onDone}>Volver a explorar <Icon name="arrow" size={17} /></button></div>;
 }
 
 function BookingsScreen({ bookings, onChange, session, onLogin, onCancel, error }) {
   return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TU HISTORIAL</span><h1>Mis turnos</h1><p>Cancelá desde acá hasta 2 horas antes del turno.</p></section>{session ? <>{error && <p className="form-error" role="alert">{error}</p>}<div className="booking-list">{bookings.map((booking) => {
     const cancelled = booking.status === 'Cancelado';
     const whatsappUrl = booking.whatsapp ? `https://wa.me/${booking.whatsapp}?text=${encodeURIComponent(`Hola, necesito gestionar mi reserva en ${booking.court} del ${booking.date} a las ${booking.time}.`)}` : '';
-    return <article className={`booking-card${cancelled ? ' is-cancelled' : ''}`} key={booking.id}><div className="booking-card__date"><strong>{formatBookingDay(booking.date)}</strong><span>AGO</span></div><div className="booking-card__content"><div><h3>{booking.court || 'Cancha'}</h3><p>{booking.date} <span className="dot-separator">·</span> {booking.time}</p></div><span className={`status-pill${cancelled ? ' is-cancelled' : ''}`}><span /> {booking.status || 'Confirmado'}</span><div className="booking-card__meta"><span>{booking.type || 'Turno'}</span><strong>{booking.price ? formatARS(booking.price) : '—'}</strong></div>{!cancelled && <div className="booking-card__actions">{booking.canCancel ? <Button variant="secondary" size="sm" type="button" onClick={() => onCancel(booking)}>Cancelar reserva</Button> : whatsappUrl ? <a className="booking-card__whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer">Gestionar por WhatsApp <Icon name="arrow" size={14} /></a> : <small>Para cancelar, contactá a la cancha.</small>}</div>}</div></article>;
+    return <article className={`booking-card${cancelled ? ' is-cancelled' : ''}`} key={booking.id}><div className="booking-card__date"><strong>{formatBookingDay(booking.date)}</strong><span>AGO</span></div><div className="booking-card__content"><div><h3>{booking.court || 'Cancha'}</h3><p>{booking.date} <span className="dot-separator">·</span> {booking.time}</p></div><span className={`status-pill${cancelled ? ' is-cancelled' : ''}`}><span /> {booking.status || 'Confirmado'}</span><div className="booking-card__meta"><span>{booking.sport || 'Turno'}</span><strong>{booking.price ? formatARS(booking.price) : '—'}</strong></div>{!cancelled && <div className="booking-card__actions">{booking.canCancel ? <Button variant="secondary" size="sm" type="button" onClick={() => onCancel(booking)}>Cancelar reserva</Button> : whatsappUrl ? <a className="booking-card__whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer">Gestionar por WhatsApp <Icon name="arrow" size={14} /></a> : <small>Para cancelar, contactá a la cancha.</small>}</div>}</div></article>;
   })}</div>{!bookings.length && <div className="empty-state"><PitchMark compact /><h3>Todavía no hay turnos</h3><p>Cuando reserves una cancha, aparece acá.</p></div>}</> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus próximos partidos</h3><p>Ingresá con Google para consultar tu historial y reservar.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}</main></div>;
 }
 
@@ -141,10 +133,10 @@ function mapApiCourt(court) {
   return {
     id: Number(court.id),
     name: court.nombre,
-    neighborhood: court.barrio,
-    distance: court.direccion || 'CABA',
-    type: court.tipo,
-    surface: court.superficie,
+    city: court.ciudad,
+    province: court.provincia,
+    address: court.direccion || 'Dirección a confirmar',
+    sport: court.deporte,
     price: Number(court.precio_desde || 0),
     description: court.descripcion || 'Una cancha lista para tu próximo partido.',
     indoor: court.indoor,
@@ -166,8 +158,6 @@ export default function Reservas() {
   const [selectedDate, setSelectedDate] = useState(dateOptions[0].value);
   const [selectedTime, setSelectedTime] = useState('');
   const [query, setQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [surfaceFilter, setSurfaceFilter] = useState('');
   const [saved, setSaved] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [profile, setProfile] = useState(null);
@@ -183,10 +173,11 @@ export default function Reservas() {
     apiFetch('/api/mis-reservas').then(readApiResponse).then((items) => setBookings(items.map((item) => ({
       id: item.id,
       court: item.cancha,
-      neighborhood: item.barrio,
+      city: item.ciudad,
+      province: item.provincia,
       date: item.fecha,
       time: item.hora,
-      type: item.tipo,
+      sport: item.deporte,
       status: item.estado === 'confirmada' ? 'Confirmado' : 'Cancelado',
       price: item.precio_ars,
       canCancel: item.puede_cancelar,
@@ -284,7 +275,7 @@ export default function Reservas() {
         method: 'POST',
         body: JSON.stringify({ nombre: bookingName, telefono: bookingPhone, fecha: dateForSelection(selectedDate), hora: selectedTime, cancha_id: selectedCourt.id }),
       }));
-      setBookings((current) => [{ id: result.id, court: selectedCourt.name, neighborhood: selectedCourt.neighborhood, date: result.fecha, time: result.hora, type: selectedCourt.type, status: 'Confirmado', price: result.precio_ars || selectedCourt.price, canCancel: true, whatsapp: '' }, ...current]);
+      setBookings((current) => [{ id: result.id, court: selectedCourt.name, city: selectedCourt.city, province: selectedCourt.province, date: result.fecha, time: result.hora, sport: selectedCourt.sport, status: 'Confirmado', price: result.precio_ars || selectedCourt.price, canCancel: true, whatsapp: '' }, ...current]);
       setScreen('success');
     } catch (requestError) {
       setError(requestError.message);
@@ -320,5 +311,5 @@ export default function Reservas() {
   if (screen === 'bookings') return <><BookingsScreen bookings={bookings} onChange={setScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} error={error} /><BottomNav current="bookings" onChange={setScreen} /></>;
   if (screen === 'saved') return <><SavedScreen courts={courts} saved={saved} onOpen={openCourt} onToggleSaved={toggleSaved} onChange={setScreen} session={session} onLogin={loginWithGoogle} /><BottomNav current="saved" onChange={setScreen} /></>;
   if (screen === 'profile') return <><ProfileScreen key={profile?.email || session?.user?.id || 'guest'} profile={profile} session={session?.user} onChange={setScreen} onLogin={loginWithGoogle} onLogout={logout} onSave={saveProfile} /><BottomNav current="profile" onChange={setScreen} /></>;
-  return <><ExploreScreen courts={courts} query={query} setQuery={setQuery} selectedDate={selectedDate} setSelectedDate={setSelectedDate} typeFilter={typeFilter} setTypeFilter={setTypeFilter} surfaceFilter={surfaceFilter} setSurfaceFilter={setSurfaceFilter} onOpen={openCourt} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} /><BottomNav current="explore" onChange={setScreen} /></>;
+  return <><ExploreScreen courts={courts} query={query} setQuery={setQuery} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onOpen={openCourt} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} canManage={profile?.role === 'admin_cancha' || profile?.role === 'superadmin'} /><BottomNav current="explore" onChange={setScreen} /></>;
 }

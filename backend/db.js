@@ -25,9 +25,12 @@ async function migrate(client = pool) {
       owner_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE RESTRICT,
       nombre TEXT NOT NULL CHECK (char_length(trim(nombre)) BETWEEN 2 AND 120),
       barrio TEXT NOT NULL DEFAULT '',
+      ciudad TEXT NOT NULL DEFAULT '',
+      provincia TEXT NOT NULL DEFAULT '',
       direccion TEXT NOT NULL DEFAULT '',
       whatsapp TEXT NOT NULL DEFAULT '',
       tipo TEXT NOT NULL DEFAULT 'Fútbol 5',
+      deporte TEXT NOT NULL DEFAULT 'Fútbol 5',
       superficie TEXT NOT NULL DEFAULT 'Césped sintético',
       descripcion TEXT NOT NULL DEFAULT '',
       indoor BOOLEAN NOT NULL DEFAULT false,
@@ -111,6 +114,21 @@ async function migrate(client = pool) {
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancelled_by TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS whatsapp TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canchas ADD COLUMN IF NOT EXISTS ciudad TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canchas ADD COLUMN IF NOT EXISTS provincia TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canchas ADD COLUMN IF NOT EXISTS deporte TEXT NOT NULL DEFAULT 'Fútbol 5';
+    UPDATE canchas
+       SET ciudad = barrio
+     WHERE trim(ciudad) = '' AND trim(barrio) <> '';
+    UPDATE canchas
+       SET provincia = 'Santa Fe'
+     WHERE trim(provincia) = '';
+    UPDATE canchas
+       SET deporte = CASE
+         WHEN tipo IN ('Fútbol 5', 'Pádel', 'Tenis') THEN tipo
+         ELSE 'Fútbol 5'
+       END
+     WHERE trim(deporte) = '' OR deporte NOT IN ('Fútbol 5', 'Pádel', 'Tenis');
     ALTER TABLE bloqueos ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE CASCADE;
     ALTER TABLE bloqueos DROP CONSTRAINT IF EXISTS bloqueos_fecha_key;
 
