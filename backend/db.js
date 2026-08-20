@@ -88,6 +88,13 @@ async function migrate(client = pool) {
       accepted_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS canchas_guardadas (
+      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      cancha_id BIGINT NOT NULL REFERENCES canchas(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, cancha_id)
+    );
+
     ALTER TABLE reservas DROP CONSTRAINT IF EXISTS reservas_fecha_hora_key;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL;
@@ -108,6 +115,7 @@ async function migrate(client = pool) {
       ON reservas (fecha, hora) WHERE cancha_id IS NULL AND estado = 'confirmada';
     CREATE INDEX IF NOT EXISTS reservas_fecha_idx ON reservas (fecha);
     CREATE INDEX IF NOT EXISTS reservas_user_idx ON reservas (user_id);
+    CREATE INDEX IF NOT EXISTS canchas_guardadas_user_idx ON canchas_guardadas (user_id);
     CREATE INDEX IF NOT EXISTS horarios_cancha_dia_idx ON horarios_cancha (cancha_id, dia_semana);
     CREATE INDEX IF NOT EXISTS canchas_owner_idx ON canchas (owner_user_id);
     CREATE UNIQUE INDEX IF NOT EXISTS bloqueos_cancha_fecha_uidx

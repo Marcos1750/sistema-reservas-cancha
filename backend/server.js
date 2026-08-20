@@ -189,6 +189,48 @@ app.get('/api/canchas', async (_req, res, next) => {
   }
 });
 
+app.get('/api/guardados', requireAuth(), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT cancha_id
+         FROM canchas_guardadas
+        WHERE user_id = $1
+        ORDER BY created_at DESC`,
+      [req.user.id],
+    );
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/guardados', requireAuth(), async (req, res, next) => {
+  const canchaId = Number(req.body?.cancha_id);
+  if (!Number.isSafeInteger(canchaId) || canchaId < 1) return res.status(400).json({ error: 'Cancha inválida' });
+  try {
+    const court = await pool.query('SELECT id FROM canchas WHERE id = $1 AND activa = true', [canchaId]);
+    if (!court.rowCount) return res.status(404).json({ error: 'Cancha no encontrada' });
+    await pool.query(
+      'INSERT INTO canchas_guardadas (user_id, cancha_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.user.id, canchaId],
+    );
+    res.status(201).json({ cancha_id: canchaId });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/guardados/:canchaId', requireAuth(), async (req, res, next) => {
+  const canchaId = Number(req.params.canchaId);
+  if (!Number.isSafeInteger(canchaId) || canchaId < 1) return res.status(400).json({ error: 'Cancha inválida' });
+  try {
+    await pool.query('DELETE FROM canchas_guardadas WHERE user_id = $1 AND cancha_id = $2', [req.user.id, canchaId]);
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/canchas/:id/disponibilidad', async (req, res, next) => {
   const fecha = cleanText(req.query.fecha, 10);
   if (!validDate(fecha)) return res.status(400).json({ error: 'Fecha inválida' });

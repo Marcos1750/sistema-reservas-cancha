@@ -116,8 +116,13 @@ function BookingsScreen({ bookings, onChange, session, onLogin, onCancel, error 
   })}</div>{!bookings.length && <div className="empty-state"><PitchMark compact /><h3>Todavía no hay turnos</h3><p>Cuando reserves una cancha, aparece acá.</p></div>}</> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus próximos partidos</h3><p>Ingresá con Google para consultar tu historial y reservar.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}</main></div>;
 }
 
+function SavedScreen({ courts, saved, onOpen, onToggleSaved, onChange, session, onLogin }) {
+  const savedCourts = courts.filter((court) => saved.includes(court.id));
+  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TUS CANCHAS</span><h1>Guardados</h1><p>Las canchas que querés tener a mano para el próximo partido.</p></section>{session ? savedCourts.length ? <div className="court-list">{savedCourts.map((court) => <CourtCard key={court.id} court={court} onOpen={onOpen} isSaved onToggleSaved={onToggleSaved} />)}</div> : <div className="empty-state"><PitchMark compact /><h3>Todavía no guardaste canchas</h3><p>Usá el corazón en una cancha para encontrarla rápido después.</p><Button variant="secondary" size="sm" type="button" onClick={() => onChange('explore')}>Explorar canchas</Button></div> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus canchas favoritas</h3><p>Ingresá con Google y vas a encontrarlas desde cualquier dispositivo.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}</main></div>;
+}
+
 function SimplePage({ kind, onChange, session, onLogin, onLogout }) {
-  const content = { saved: ['TUS CANCHAS', 'Guardados', 'Las canchas que querés tener a mano para el próximo partido.'], profile: ['TU CUENTA', 'Perfil', session ? `${session.user.name} · ${session.user.email}` : 'Ingresá con Google para crear tu perfil.'] }[kind];
+  const content = { profile: ['TU CUENTA', 'Perfil', session ? `${session.user.name} · ${session.user.email}` : 'Ingresá con Google para crear tu perfil.'] }[kind];
   return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={onLogin}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">{content[0]}</span><h1>{content[1]}</h1><p>{content[2]}</p></section><div className="quiet-panel"><PitchMark compact /><h3>{session ? 'Tu cuenta está lista' : 'Ingresá con Google'}</h3><p>{session ? 'Desde acá vas a poder consultar tus datos y próximos turnos.' : 'Podés explorar sin cuenta y registrarte al momento de reservar.'}</p>{session ? <Button variant="secondary" size="sm" type="button" onClick={onLogout}>Cerrar sesión</Button> : <Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button>}</div></main></div>;
 }
 
@@ -182,6 +187,11 @@ export default function Reservas() {
   }, [session]);
 
   useEffect(() => {
+    if (!session?.user) return;
+    apiFetch('/api/guardados').then(readApiResponse).then((items) => setSaved(items.map((item) => Number(item.cancha_id)))).catch(() => setSaved([]));
+  }, [session]);
+
+  useEffect(() => {
     if (!session?.user || !courtsLoaded) return;
     const pending = sessionStorage.getItem('pending-booking');
     if (!pending) return;
@@ -231,7 +241,19 @@ export default function Reservas() {
     setScreen('detail');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-  const toggleSaved = (id) => setSaved((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const toggleSaved = async (id) => {
+    if (!session?.user) return loginWithGoogle();
+    const alreadySaved = saved.includes(id);
+    try {
+      await readApiResponse(await apiFetch(alreadySaved ? `/api/guardados/${id}` : '/api/guardados', {
+        method: alreadySaved ? 'DELETE' : 'POST',
+        body: alreadySaved ? undefined : JSON.stringify({ cancha_id: id }),
+      }));
+      setSaved((current) => alreadySaved ? current.filter((item) => item !== id) : [...current, id]);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
   const beginBooking = () => {
     setError('');
     if (!session?.user) {
@@ -278,6 +300,7 @@ export default function Reservas() {
   if (screen === 'success') return <SuccessScreen court={selectedCourt} date={selectedDate} time={selectedTime} onDone={backToExplore} />;
   const openAccount = () => session?.user ? setScreen('profile') : loginWithGoogle();
   if (screen === 'bookings') return <><BookingsScreen bookings={bookings} onChange={setScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} error={error} /><BottomNav current="bookings" onChange={setScreen} /></>;
-  if (screen === 'saved' || screen === 'profile') return <><SimplePage kind={screen} onChange={setScreen} session={session} onLogin={openAccount} onLogout={logout} /><BottomNav current={screen} onChange={setScreen} /></>;
+  if (screen === 'saved') return <><SavedScreen courts={courts} saved={saved} onOpen={openCourt} onToggleSaved={toggleSaved} onChange={setScreen} session={session} onLogin={loginWithGoogle} /><BottomNav current="saved" onChange={setScreen} /></>;
+  if (screen === 'profile') return <><SimplePage kind="profile" onChange={setScreen} session={session} onLogin={openAccount} onLogout={logout} /><BottomNav current="profile" onChange={setScreen} /></>;
   return <><ExploreScreen courts={courts} query={query} setQuery={setQuery} selectedDate={selectedDate} setSelectedDate={setSelectedDate} typeFilter={typeFilter} setTypeFilter={setTypeFilter} surfaceFilter={surfaceFilter} setSurfaceFilter={setSurfaceFilter} onOpen={openCourt} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} /><BottomNav current="explore" onChange={setScreen} /></>;
 }
