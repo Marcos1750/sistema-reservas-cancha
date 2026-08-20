@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { validateReservation } = await import('../server.js');
+const { canCustomerCancel, validateReservation } = await import('../server.js');
 
 function response() {
   return {
@@ -56,4 +56,11 @@ test('una reserva nueva exige una cancha concreta', () => {
     validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', cancha_id: 7 }),
     { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', canchaId: 7 },
   );
+});
+
+test('el cliente puede cancelar hasta dos horas antes del turno', () => {
+  const reservation = { estado: 'confirmada', fecha: '2026-08-20', hora: '16:00-17:00' };
+  assert.equal(canCustomerCancel(reservation, new Date('2026-08-20T14:00:00-03:00')), true);
+  assert.equal(canCustomerCancel(reservation, new Date('2026-08-20T14:00:01-03:00')), false);
+  assert.equal(canCustomerCancel({ ...reservation, estado: 'cancelada' }, new Date('2026-08-20T12:00:00-03:00')), false);
 });

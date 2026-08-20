@@ -63,3 +63,16 @@ h1, h2, h3, p { margin: 0; }.welcome-block h1, .page-heading h1 { max-width: 620
 @media (max-width: 430px) { .welcome-block h1 { font-size: 38px; }.search-field kbd { display: none; }.court-placeholder { min-height: 128px; }.court-card__facts { gap: 5px; }.court-card__facts span { font-size: 9px; padding: 5px 6px; }.booking-summary { grid-template-columns: 96px 1fr; }.booking-summary .court-placeholder { min-height: 88px; }.sticky-cta { gap: 10px; }.sticky-cta .primary-button { padding: 0 13px; }.sticky-cta--booking .primary-button { min-width: 0; }.success-ticket strong { font-size: 10px; }.success-ticket small { font-size: 8px; } }
 .form-success { margin-top: 16px; color: var(--lime); font-size: 12px; }
 .date-picker-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.booking-card { grid-template-columns: 51px minmax(0, 1fr); cursor: default; }
+.booking-card.is-cancelled { opacity: .66; }
+.status-pill.is-cancelled, .admin-status--cancelada { color: var(--red); }
+.status-pill.is-cancelled span, .admin-status--cancelada span { background: var(--red); }
+.booking-card__actions { display: flex; align-items: center; gap: 10px; margin-top: 13px; }
+.booking-card__actions .secondary-button { margin-top: 0; }
+.booking-card__whatsapp { display: inline-flex; align-items: center; gap: 5px; color: var(--lime); font-size: 10px; font-weight: 800; text-decoration: none; }
+.booking-card__actions small { color: var(--muted-2); font-size: 10px; }
+.admin-contact-form { display: flex; align-items: end; gap: 12px; margin: 0 0 18px; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: rgba(18,49,38,.35); }
+.admin-contact-form label { display: grid; flex: 1; gap: 7px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.admin-contact-form input { min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; outline: 0; background: var(--surface); color: var(--warm); font-size: 12px; }
+.admin-contact-form input:focus { border-color: var(--lime); }
+@media (max-width: 780px) { .admin-contact-form { align-items: stretch; flex-direction: column; }.admin-form--court { grid-template-columns: 1fr; } }

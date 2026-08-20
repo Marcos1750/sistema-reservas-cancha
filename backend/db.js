@@ -26,6 +26,7 @@ async function migrate(client = pool) {
       nombre TEXT NOT NULL CHECK (char_length(trim(nombre)) BETWEEN 2 AND 120),
       barrio TEXT NOT NULL DEFAULT '',
       direccion TEXT NOT NULL DEFAULT '',
+      whatsapp TEXT NOT NULL DEFAULT '',
       tipo TEXT NOT NULL DEFAULT 'Fútbol 5',
       superficie TEXT NOT NULL DEFAULT 'Césped sintético',
       descripcion TEXT NOT NULL DEFAULT '',
@@ -63,6 +64,10 @@ async function migrate(client = pool) {
       telefono TEXT NOT NULL CHECK (telefono ~ '^[0-9]{7,15}$'),
       fecha DATE NOT NULL,
       hora TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'confirmada',
+      cancelled_at TIMESTAMPTZ,
+      cancelled_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+      cancel_reason TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (fecha, hora)
     );
@@ -88,13 +93,19 @@ async function migrate(client = pool) {
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS precio_ars INTEGER CHECK (precio_ars IS NULL OR precio_ars >= 0);
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'confirmada';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancelled_by TEXT REFERENCES "user"(id) ON DELETE SET NULL;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+    ALTER TABLE canchas ADD COLUMN IF NOT EXISTS whatsapp TEXT NOT NULL DEFAULT '';
     ALTER TABLE bloqueos ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE CASCADE;
     ALTER TABLE bloqueos DROP CONSTRAINT IF EXISTS bloqueos_fecha_key;
 
-    CREATE UNIQUE INDEX IF NOT EXISTS reservas_cancha_fecha_hora_uidx
-      ON reservas (cancha_id, fecha, hora) WHERE cancha_id IS NOT NULL;
-    CREATE UNIQUE INDEX IF NOT EXISTS reservas_legacy_fecha_hora_uidx
-      ON reservas (fecha, hora) WHERE cancha_id IS NULL;
+    DROP INDEX IF EXISTS reservas_cancha_fecha_hora_uidx;
+    DROP INDEX IF EXISTS reservas_legacy_fecha_hora_uidx;
+    CREATE UNIQUE INDEX reservas_cancha_fecha_hora_uidx
+      ON reservas (cancha_id, fecha, hora) WHERE cancha_id IS NOT NULL AND estado = 'confirmada';
+    CREATE UNIQUE INDEX reservas_legacy_fecha_hora_uidx
+      ON reservas (fecha, hora) WHERE cancha_id IS NULL AND estado = 'confirmada';
     CREATE INDEX IF NOT EXISTS reservas_fecha_idx ON reservas (fecha);
     CREATE INDEX IF NOT EXISTS reservas_user_idx ON reservas (user_id);
     CREATE INDEX IF NOT EXISTS horarios_cancha_dia_idx ON horarios_cancha (cancha_id, dia_semana);

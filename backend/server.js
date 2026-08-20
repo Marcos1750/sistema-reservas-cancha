@@ -17,6 +17,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIST = path.resolve(__dirname, '../frontend/dist');
+const CANCELLATION_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 app.disable('x-powered-by');
 
@@ -27,6 +28,13 @@ app.use(express.json({ limit: '20kb' }));
 
 function cleanText(value, maxLength) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function normalizeWhatsApp(value) {
+  let digits = cleanText(value, 32).replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits && !digits.startsWith('54')) digits = `549${digits}`;
+  return /^\d{10,15}$/.test(digits) ? digits : '';
 }
 
 function validDate(value) {
@@ -65,9 +73,11 @@ function validateCourt(body) {
   const tipo = cleanText(body.tipo || 'Fútbol 5', 40);
   const superficie = cleanText(body.superficie || 'Césped sintético', 80);
   const descripcion = cleanText(body.descripcion || '', 500);
+  const whatsapp = normalizeWhatsApp(body.whatsapp || '');
   const indoor = Boolean(body.indoor);
   if (nombre.length < 2 || !barrio) return { error: 'Nombre y barrio son obligatorios' };
-  return { nombre, barrio, direccion, tipo, superficie, descripcion, indoor };
+  if (!whatsapp) return { error: 'Ingresá un WhatsApp válido con código de país, por ejemplo 54911...' };
+  return { nombre, barrio, direccion, tipo, superficie, descripcion, whatsapp, indoor };
 }
 
 function validateBlock(body) {
@@ -96,6 +106,14 @@ function formatSlot(row) {
     price: row.precio_ars,
     active: row.activo,
   };
+}
+
+function canCustomerCancel(reservation, now = new Date()) {
+  if (reservation.estado !== 'confirmada') return false;
+  const slot = parseSlot(reservation.hora);
+  if (!slot) return false;
+  const startAt = new Date(`${reservation.fecha}T${slot.start}:00-03:00`);
+  return Number.isFinite(startAt.getTime()) && startAt.getTime() - now.getTime() >= CANCELLATION_WINDOW_MS;
 }
 
 async function courtAccess(req, res, next) {
@@ -182,7 +200,8 @@ app.get('/api/canchas/:id/disponibilidad', async (req, res, next) => {
               COALESCE(e.disponible, h.activo) AS disponible,
               COALESCE(e.precio_ars, h.precio_ars) AS precio_ars,
               EXISTS (SELECT 1 FROM reservas r WHERE r.cancha_id = h.cancha_id
-                AND r.fecha = $2 AND r.hora = to_char(h.hora_inicio, 'HH24:MI') || '-' || to_char(h.hora_fin, 'HH24:MI')) AS reservado
+                AND r.fecha = $2 AND r.hora = to_char(h.hora_inicio, 'HH24:MI') || '-' || to_char(h.hora_fin, 'HH24:MI')
+                AND r.estado = 'confirmada') AS reservado
          FROM horarios_cancha h
          LEFT JOIN excepciones_cancha e ON e.cancha_id = h.cancha_id AND e.fecha = $2
           AND e.hora_inicio = h.hora_inicio AND e.hora_fin = h.hora_fin
@@ -206,7 +225,7 @@ app.get('/api/canchas/:id/disponibilidad', async (req, res, next) => {
 
 app.get('/api/reservas', async (_req, res, next) => {
   try {
-    const { rows } = await pool.query('SELECT fecha::text, hora, cancha_id FROM reservas ORDER BY fecha, hora');
+    const { rows } = await pool.query("SELECT fecha::text, hora, cancha_id FROM reservas WHERE estado = 'confirmada' ORDER BY fecha, hora");
     res.json(rows);
   } catch (error) {
     next(error);
@@ -248,12 +267,39 @@ app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars,
               r.estado, r.created_at, c.id AS cancha_id, c.nombre AS cancha,
-              c.barrio, c.tipo, c.superficie
+              c.barrio, c.tipo, c.superficie, c.whatsapp
          FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id
         WHERE r.user_id = $1 ORDER BY r.fecha, r.hora`,
       [req.user.id],
     );
-    res.json(rows);
+    res.json(rows.map((reservation) => ({ ...reservation, puede_cancelar: canCustomerCancel(reservation) })));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/mis-reservas/:id/cancelar', requireAuth(), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT r.id, r.fecha::text, r.hora, r.estado, c.whatsapp
+         FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id
+        WHERE r.id = $1 AND r.user_id = $2`,
+      [req.params.id, req.user.id],
+    );
+    const reservation = rows[0];
+    if (!reservation) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (!canCustomerCancel(reservation)) {
+      return res.status(409).json({ error: 'La cancelación online está disponible hasta dos horas antes del turno', whatsapp: reservation.whatsapp || null });
+    }
+    const result = await pool.query(
+      `UPDATE reservas SET estado = 'cancelada', cancelled_at = NOW(), cancelled_by = $2,
+              cancel_reason = 'Cancelada por el cliente'
+        WHERE id = $1 AND user_id = $2 AND estado = 'confirmada'
+        RETURNING id, estado, cancelled_at`,
+      [req.params.id, req.user.id],
+    );
+    if (!result.rowCount) return res.status(409).json({ error: 'La reserva ya fue cancelada' });
+    res.json(result.rows[0]);
   } catch (error) {
     next(error);
   }
@@ -280,9 +326,9 @@ app.post('/api/admin/canchas', requireAnyAdmin, async (req, res, next) => {
   if (court.error) return res.status(400).json(court);
   try {
     const { rows } = await pool.query(
-      `INSERT INTO canchas (owner_user_id, nombre, barrio, direccion, tipo, superficie, descripcion, indoor)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.user.id, court.nombre, court.barrio, court.direccion, court.tipo, court.superficie, court.descripcion, court.indoor],
+      `INSERT INTO canchas (owner_user_id, nombre, barrio, direccion, whatsapp, tipo, superficie, descripcion, indoor)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.user.id, court.nombre, court.barrio, court.direccion, court.whatsapp, court.tipo, court.superficie, court.descripcion, court.indoor],
     );
     res.status(201).json(rows[0]);
   } catch (error) {
@@ -295,10 +341,10 @@ app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, re
   if (court.error) return res.status(400).json(court);
   try {
     const { rows } = await pool.query(
-      `UPDATE canchas SET nombre=$1,barrio=$2,direccion=$3,tipo=$4,superficie=$5,
-              descripcion=$6,indoor=$7,activa=COALESCE($8, activa),updated_at=NOW()
-        WHERE id=$9 RETURNING *`,
-      [court.nombre, court.barrio, court.direccion, court.tipo, court.superficie, court.descripcion, court.indoor, req.body.activa, req.params.id],
+      `UPDATE canchas SET nombre=$1,barrio=$2,direccion=$3,whatsapp=$4,tipo=$5,superficie=$6,
+              descripcion=$7,indoor=$8,activa=COALESCE($9, activa),updated_at=NOW()
+        WHERE id=$10 RETURNING *`,
+      [court.nombre, court.barrio, court.direccion, court.whatsapp, court.tipo, court.superficie, court.descripcion, court.indoor, req.body.activa, req.params.id],
     );
     res.json(rows[0]);
   } catch (error) {
@@ -421,15 +467,20 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
 
 app.delete('/api/admin/reservas/:id', requireAnyAdmin, async (req, res, next) => {
   try {
-    const params = [req.params.id];
-    const filter = req.user.role === 'superadmin' ? '' : ' AND c.owner_user_id = $2';
+    const params = [req.params.id, req.user.id];
+    const filter = req.user.role === 'superadmin' ? '' : ' AND c.owner_user_id = $3';
     if (req.user.role !== 'superadmin') params.push(req.user.id);
     const result = await pool.query(
-      `DELETE FROM reservas r USING canchas c WHERE r.id = $1 AND r.cancha_id = c.id${filter}`,
+      `UPDATE reservas r
+          SET estado = 'cancelada', cancelled_at = NOW(), cancelled_by = $2,
+              cancel_reason = 'Cancelada por administración'
+         FROM canchas c
+        WHERE r.id = $1 AND r.cancha_id = c.id AND r.estado = 'confirmada'${filter}
+        RETURNING r.id`,
       params,
     );
     if (!result.rowCount) return res.status(404).json({ error: 'Reserva no encontrada' });
-    res.json({ message: 'Reserva eliminada con éxito' });
+    res.json({ message: 'Reserva cancelada con éxito' });
   } catch (error) {
     next(error);
   }
@@ -568,4 +619,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, prepare, start, validateReservation };
+export { app, canCustomerCancel, prepare, start, validateReservation };

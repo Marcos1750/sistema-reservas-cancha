@@ -108,8 +108,12 @@ function SuccessScreen({ court, date, time, onDone }) {
   return <div className="success-screen"><div className="success-grid" /><div className="success-mark"><Icon name="check" size={28} /></div><span className="section-kicker">RESERVA CONFIRMADA</span><h1>El partido ya<br /><em>tiene cancha.</em></h1><p>{court.name}<br />{date} a las {time}</p><div className="success-ticket"><div><small>UBICACIÓN</small><strong>{court.neighborhood}</strong></div><div><small>TIPO</small><strong>{court.type}</strong></div><div><small>TOTAL</small><strong>{formatARS(court.price)}</strong></div></div><button className="primary-button" type="button" onClick={onDone}>Volver a explorar <Icon name="arrow" size={17} /></button></div>;
 }
 
-function BookingsScreen({ bookings, onOpen, onChange, session, onLogin }) {
-  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TU HISTORIAL</span><h1>Mis turnos</h1><p>Todo lo que ya está listo para jugar.</p></section>{session ? <><div className="booking-list">{bookings.map((booking) => <button className="booking-card" type="button" key={booking.id} onClick={() => onOpen(mockCourts.find((court) => court.name === booking.court) || mockCourts[0])}><div className="booking-card__date"><strong>{formatBookingDay(booking.date)}</strong><span>AGO</span></div><div className="booking-card__content"><div><h3>{booking.court || 'Cancha'}</h3><p>{booking.date} <span className="dot-separator">·</span> {booking.time}</p></div><span className="status-pill"><span /> {booking.status || 'Confirmado'}</span><div className="booking-card__meta"><span>{booking.type || 'Turno'}</span><strong>{booking.price ? formatARS(booking.price) : '—'}</strong></div></div><Icon name="chevron" size={18} /></button>)}</div>{!bookings.length && <div className="empty-state"><PitchMark compact /><h3>Todavía no hay turnos</h3><p>Cuando reserves una cancha, aparece acá.</p></div>}</> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus próximos partidos</h3><p>Ingresá con Google para consultar tu historial y reservar.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}</main></div>;
+function BookingsScreen({ bookings, onChange, session, onLogin, onCancel, error }) {
+  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TU HISTORIAL</span><h1>Mis turnos</h1><p>Cancelá desde acá hasta 2 horas antes del turno.</p></section>{session ? <>{error && <p className="form-error" role="alert">{error}</p>}<div className="booking-list">{bookings.map((booking) => {
+    const cancelled = booking.status === 'Cancelado';
+    const whatsappUrl = booking.whatsapp ? `https://wa.me/${booking.whatsapp}?text=${encodeURIComponent(`Hola, necesito gestionar mi reserva en ${booking.court} del ${booking.date} a las ${booking.time}.`)}` : '';
+    return <article className={`booking-card${cancelled ? ' is-cancelled' : ''}`} key={booking.id}><div className="booking-card__date"><strong>{formatBookingDay(booking.date)}</strong><span>AGO</span></div><div className="booking-card__content"><div><h3>{booking.court || 'Cancha'}</h3><p>{booking.date} <span className="dot-separator">·</span> {booking.time}</p></div><span className={`status-pill${cancelled ? ' is-cancelled' : ''}`}><span /> {booking.status || 'Confirmado'}</span><div className="booking-card__meta"><span>{booking.type || 'Turno'}</span><strong>{booking.price ? formatARS(booking.price) : '—'}</strong></div>{!cancelled && <div className="booking-card__actions">{booking.canCancel ? <Button variant="secondary" size="sm" type="button" onClick={() => onCancel(booking)}>Cancelar reserva</Button> : whatsappUrl ? <a className="booking-card__whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer">Gestionar por WhatsApp <Icon name="arrow" size={14} /></a> : <small>Para cancelar, contactá a la cancha.</small>}</div>}</div></article>;
+  })}</div>{!bookings.length && <div className="empty-state"><PitchMark compact /><h3>Todavía no hay turnos</h3><p>Cuando reserves una cancha, aparece acá.</p></div>}</> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus próximos partidos</h3><p>Ingresá con Google para consultar tu historial y reservar.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}</main></div>;
 }
 
 function SimplePage({ kind, onChange, session, onLogin, onLogout }) {
@@ -170,8 +174,10 @@ export default function Reservas() {
       date: item.fecha,
       time: item.hora,
       type: item.tipo,
-      status: item.estado === 'confirmada' ? 'Confirmado' : item.estado,
+      status: item.estado === 'confirmada' ? 'Confirmado' : 'Cancelado',
       price: item.precio_ars,
+      canCancel: item.puede_cancelar,
+      whatsapp: item.whatsapp,
     })))).catch(() => setBookings([]));
   }, [session]);
 
@@ -242,7 +248,7 @@ export default function Reservas() {
         method: 'POST',
         body: JSON.stringify({ nombre: bookingName, telefono: form.phone, fecha: dateForSelection(selectedDate), hora: selectedTime, cancha_id: selectedCourt.id }),
       }));
-      setBookings((current) => [{ id: result.id, court: selectedCourt.name, neighborhood: selectedCourt.neighborhood, date: result.fecha, time: result.hora, type: selectedCourt.type, status: 'Confirmado', price: result.precio_ars || selectedCourt.price }, ...current]);
+      setBookings((current) => [{ id: result.id, court: selectedCourt.name, neighborhood: selectedCourt.neighborhood, date: result.fecha, time: result.hora, type: selectedCourt.type, status: 'Confirmado', price: result.precio_ars || selectedCourt.price, canCancel: true, whatsapp: '' }, ...current]);
       setScreen('success');
     } catch (requestError) {
       setError(requestError.message);
@@ -255,13 +261,23 @@ export default function Reservas() {
     setForm((current) => ({ ...current, phone: '' }));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const cancelBooking = async (booking) => {
+    if (!window.confirm(`¿Querés cancelar tu turno en ${booking.court}?`)) return;
+    setError('');
+    try {
+      await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' }));
+      setBookings((current) => current.map((item) => item.id === booking.id ? { ...item, status: 'Cancelado', canCancel: false } : item));
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
   const logout = async () => { await authClient.signOut(); setScreen('explore'); };
   if (isPending) return <div className="quiet-panel">Cargando tu sesión…</div>;
   if (screen === 'detail') return <><DetailScreen court={selectedCourt} date={selectedDate} setDate={setSelectedDate} time={selectedTime} setTime={setSelectedTime} onBack={backToExplore} onReserve={beginBooking} saved={saved} onToggleSaved={toggleSaved} /><BottomNav current="explore" onChange={setScreen} /></>;
   if (screen === 'booking') return <BookingScreen court={selectedCourt} date={selectedDate} time={selectedTime} form={form} setForm={setForm} onBack={() => setScreen('detail')} onConfirm={confirmBooking} error={error} defaultName={session?.user?.name} />;
   if (screen === 'success') return <SuccessScreen court={selectedCourt} date={selectedDate} time={selectedTime} onDone={backToExplore} />;
   const openAccount = () => session?.user ? setScreen('profile') : loginWithGoogle();
-  if (screen === 'bookings') return <><BookingsScreen bookings={bookings} onOpen={openCourt} onChange={setScreen} session={session} onLogin={loginWithGoogle} /><BottomNav current="bookings" onChange={setScreen} /></>;
+  if (screen === 'bookings') return <><BookingsScreen bookings={bookings} onChange={setScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} error={error} /><BottomNav current="bookings" onChange={setScreen} /></>;
   if (screen === 'saved' || screen === 'profile') return <><SimplePage kind={screen} onChange={setScreen} session={session} onLogin={openAccount} onLogout={logout} /><BottomNav current={screen} onChange={setScreen} /></>;
   return <><ExploreScreen courts={courts} query={query} setQuery={setQuery} selectedDate={selectedDate} setSelectedDate={setSelectedDate} typeFilter={typeFilter} setTypeFilter={setTypeFilter} surfaceFilter={surfaceFilter} setSurfaceFilter={setSurfaceFilter} onOpen={openCourt} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} /><BottomNav current="explore" onChange={setScreen} /></>;
 }
