@@ -17,7 +17,7 @@ El repositorio está preparado como un único proyecto Vercel:
    - DATABASE_URL: conexión PostgreSQL.
    - AUTH_SECRET: secreto aleatorio largo.
    - ADMIN_PASSWORD_HASH: hash generado con npm run hash-password -- "tu-clave" desde la raíz del repositorio.
-   - NODE_ENV=production en Production.
+   - Vercel define el entorno de producción automáticamente; no agregues `NODE_ENV=production` como variable manual porque puede hacer que `npm ci` omita las dependencias de build.
 
 5. No definir VITE_ACCESS_PW ni VITE_API_URL en producción.
 6. Verificar GET https://<dominio>/api/health, GET https://<dominio>/api/reservas y GET https://<dominio>/.
