@@ -1,11 +1,16 @@
 const { Pool } = require('pg');
 
-if (!process.env.DATABASE_URL) {
+// Neon en Vercel puede exponer la conexión con el prefijo STORAGE_.
+const databaseUrl = process.env.DATABASE_URL
+  || process.env.STORAGE_DATABASE_URL
+  || process.env.POSTGRES_URL;
+
+if (!databaseUrl) {
   throw new Error('DATABASE_URL es obligatorio para iniciar la aplicación');
 }
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: databaseUrl,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
   max: 10,
   idleTimeoutMillis: 30_000,

@@ -31,7 +31,7 @@ function clearSessionCookie(res) {
 }
 
 async function loginAdmin(password) {
-  const hash = process.env.ADMIN_PASSWORD_HASH;
+  const hash = process.env.ADMIN_PASSWORD_HASH || process.env.admin_password_hash;
   if (!hash || !password) return false;
   return bcrypt.compare(password, hash);
 }
