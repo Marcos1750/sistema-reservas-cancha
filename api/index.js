@@ -1,8 +1,8 @@
-const { app, prepare } = require('../backend/server');
+import { app, prepare } from '../backend/server.js';
 
 let initialization;
 
-module.exports = async function vercelHandler(req, res) {
+export default async function vercelHandler(req, res) {
   // Vercel can provide the function with /api/foo or only /foo.
   if (req.url && !req.url.startsWith('/api')) {
     const [pathname, query] = req.url.split('?');

@@ -1,4 +1,6 @@
-const { Pool } = require('pg');
+import pg from 'pg';
+
+const { Pool } = pg;
 
 const databaseUrl = process.env.DATABASE_URL
   || process.env.STORAGE_DATABASE_URL
@@ -110,4 +112,4 @@ async function closeDatabase() {
   await pool.end();
 }
 
-module.exports = { pool, migrate, closeDatabase };
+export { pool, migrate, closeDatabase };

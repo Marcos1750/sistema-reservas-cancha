@@ -2,7 +2,7 @@
   "name": "sistema-reservas-cancha",
   "private": true,
   "version": "1.0.0",
-  "type": "commonjs",
+  "type": "module",
   "engines": {
     "node": "22.x"
   },

@@ -1,6 +1,6 @@
-const { betterAuth } = require('better-auth');
-const { fromNodeHeaders, toNodeHandler } = require('better-auth/node');
-const { pool } = require('./db');
+import { betterAuth } from 'better-auth';
+import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
+import { pool } from './db.js';
 
 const ROLES = ['cliente', 'admin_cancha', 'superadmin'];
 const baseURL = process.env.BETTER_AUTH_URL || 'http://localhost:3001';
@@ -162,7 +162,7 @@ function requireAnyAdmin(req, res, next) {
   return requireAuth(['admin_cancha', 'superadmin'])(req, res, next);
 }
 
-module.exports = {
+export {
   ROLES,
   auth,
   migrateAuth,

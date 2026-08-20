@@ -1,9 +1,9 @@
-require('dotenv').config();
-
-const express = require('express');
-const path = require('node:path');
-const { migrate, pool } = require('./db');
-const {
+import 'dotenv/config';
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { migrate, pool } from './db.js';
+import {
   auth,
   migrateAuth,
   requireAnyAdmin,
@@ -11,10 +11,11 @@ const {
   getSessionUser,
   syncConfiguredRole,
   toNodeHandler,
-} = require('./auth');
+} from './auth.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIST = path.resolve(__dirname, '../frontend/dist');
 
 app.disable('x-powered-by');
@@ -560,11 +561,11 @@ async function start() {
   });
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   start().catch((error) => {
     console.error('No se pudo iniciar la aplicación:', error);
     process.exit(1);
   });
 }
 
-module.exports = { app, prepare, start, validateReservation };
+export { app, prepare, start, validateReservation };

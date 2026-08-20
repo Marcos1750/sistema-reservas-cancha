@@ -1,5 +1,5 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
 process.env.DATABASE_URL = 'postgres://postgres:postgres@127.0.0.1:5432/reservas_test';
 process.env.BETTER_AUTH_SECRET = 'test-secret-that-is-long-enough-for-better-auth-12345';
@@ -7,8 +7,8 @@ process.env.BETTER_AUTH_URL = 'http://localhost:3001';
 process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
-const { ROLES, auth, requireAuth } = require('../auth');
-const { validateReservation } = require('../server');
+const { ROLES, auth, requireAuth } = await import('../auth.js');
+const { validateReservation } = await import('../server.js');
 
 function response() {
   return {
