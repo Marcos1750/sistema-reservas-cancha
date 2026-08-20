@@ -95,6 +95,13 @@ async function migrate(client = pool) {
       PRIMARY KEY (user_id, cancha_id)
     );
 
+    CREATE TABLE IF NOT EXISTS perfiles_usuario (
+      user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+      nombre_reserva TEXT NOT NULL DEFAULT '',
+      whatsapp TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     ALTER TABLE reservas DROP CONSTRAINT IF EXISTS reservas_fecha_hora_key;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL;

@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { canCustomerCancel, validateReservation } = await import('../server.js');
+const { canCustomerCancel, validateProfile, validateReservation } = await import('../server.js');
 
 function response() {
   return {
@@ -63,4 +63,9 @@ test('el cliente puede cancelar hasta dos horas antes del turno', () => {
   assert.equal(canCustomerCancel(reservation, new Date('2026-08-20T14:00:00-03:00')), true);
   assert.equal(canCustomerCancel(reservation, new Date('2026-08-20T14:00:01-03:00')), false);
   assert.equal(canCustomerCancel({ ...reservation, estado: 'cancelada' }, new Date('2026-08-20T12:00:00-03:00')), false);
+});
+
+test('el perfil exige datos válidos para completar una reserva', () => {
+  assert.equal(validateProfile({ nombre: 'M', whatsapp: '1155555555' }).error, 'Completá un nombre y WhatsApp válidos');
+  assert.deepEqual(validateProfile({ nombre: 'Marcos', whatsapp: '11 5555 5555' }), { nombre: 'Marcos', whatsapp: '1155555555' });
 });

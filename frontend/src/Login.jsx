@@ -99,9 +99,9 @@ function DetailScreen({ court, date, setDate, time, setTime, onBack, onReserve, 
   return <div className="app-shell app-shell--detail"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(court.id) ? ' is-saved' : ''}`} type="button" onClick={() => onToggleSaved(court.id)} aria-label="Guardar cancha"><Icon name="heart" size={18} /></button></header><main className="detail-content"><CourtPlaceholder court={court} large /><div className="detail-intro"><div><span className="detail-eyebrow">PREDIO SELECCIONADO</span><h1>{court.name}</h1><p><Icon name="pin" size={14} /> {court.neighborhood} <span className="dot-separator">·</span> {court.distance}</p></div><span className="rating-badge"><Icon name="star" size={13} /> {court.rating}</span></div><p className="detail-description">{court.description}</p><div className="amenity-row">{court.amenities.map((amenity) => <span key={amenity}>{amenity}</span>)}</div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} /><div className="time-grid">{court.slots.map((slot) => <button className={`time-slot${time === slot ? ' is-selected' : ''}`} key={slot} type="button" onClick={() => setTime(slot)}><Icon name="clock" size={14} /> {slot}</button>)}</div></section></main><div className="sticky-cta"><div><small>{time ? 'Total del turno' : 'Desde'}</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div><Button className="primary-button" type="button" disabled={!time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div>;
 }
 
-function BookingScreen({ court, date, time, form, setForm, onBack, onConfirm, error, defaultName }) {
+function BookingScreen({ court, date, time, form, setForm, onBack, onConfirm, error, defaultName, defaultPhone }) {
   const price = court.slotPrices?.[time] ?? court.price;
-  return <div className="app-shell app-shell--booking"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><span className="flow-title">Confirmar reserva</span><span className="step-count">02 / 02</span></header><main className="booking-content"><div className="booking-summary"><CourtPlaceholder court={court} /><div><span className="detail-eyebrow">TU TURNO</span><h2>{court.name}</h2><p><Icon name="calendar" size={13} /> {date} <span className="dot-separator">·</span> <Icon name="clock" size={13} /> {time}</p></div></div><div className="booking-divider" /><section className="form-section"><span className="section-kicker">DATOS DEL CAPITÁN</span><h1>¿A nombre de quién<br />reservamos?</h1><label>Nombre completo<Input value={form.name || defaultName || ''} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Martín Sosa" autoComplete="name" /></label><label>WhatsApp<Input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="11 5555 5555" inputMode="tel" autoComplete="tel" /></label>{error && <p className="form-error" role="alert">{error}</p>}</section></main><div className="sticky-cta sticky-cta--booking"><div><small>Total del turno</small><strong>{formatARS(price)}</strong></div><Button className="primary-button" type="button" onClick={onConfirm}>Confirmar reserva <Icon name="check" size={17} /></Button></div></div>;
+  return <div className="app-shell app-shell--booking"><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><span className="flow-title">Confirmar reserva</span><span className="step-count">02 / 02</span></header><main className="booking-content"><div className="booking-summary"><CourtPlaceholder court={court} /><div><span className="detail-eyebrow">TU TURNO</span><h2>{court.name}</h2><p><Icon name="calendar" size={13} /> {date} <span className="dot-separator">·</span> <Icon name="clock" size={13} /> {time}</p></div></div><div className="booking-divider" /><section className="form-section"><span className="section-kicker">DATOS DEL CAPITÁN</span><h1>¿A nombre de quién<br />reservamos?</h1><label>Nombre completo<Input value={form.name || defaultName || ''} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Martín Sosa" autoComplete="name" /></label><label>WhatsApp<Input value={form.phone || defaultPhone || ''} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="11 5555 5555" inputMode="tel" autoComplete="tel" /></label>{error && <p className="form-error" role="alert">{error}</p>}</section></main><div className="sticky-cta sticky-cta--booking"><div><small>Total del turno</small><strong>{formatARS(price)}</strong></div><Button className="primary-button" type="button" onClick={onConfirm}>Confirmar reserva <Icon name="check" size={17} /></Button></div></div>;
 }
 
 function SuccessScreen({ court, date, time, onDone }) {
@@ -121,9 +121,16 @@ function SavedScreen({ courts, saved, onOpen, onToggleSaved, onChange, session, 
   return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TUS CANCHAS</span><h1>Guardados</h1><p>Las canchas que querés tener a mano para el próximo partido.</p></section>{session ? savedCourts.length ? <div className="court-list">{savedCourts.map((court) => <CourtCard key={court.id} court={court} onOpen={onOpen} isSaved onToggleSaved={onToggleSaved} />)}</div> : <div className="empty-state"><PitchMark compact /><h3>Todavía no guardaste canchas</h3><p>Usá el corazón en una cancha para encontrarla rápido después.</p><Button variant="secondary" size="sm" type="button" onClick={() => onChange('explore')}>Explorar canchas</Button></div> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus canchas favoritas</h3><p>Ingresá con Google y vas a encontrarlas desde cualquier dispositivo.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}</main></div>;
 }
 
-function SimplePage({ kind, onChange, session, onLogin, onLogout }) {
-  const content = { profile: ['TU CUENTA', 'Perfil', session ? `${session.user.name} · ${session.user.email}` : 'Ingresá con Google para crear tu perfil.'] }[kind];
-  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={onLogin}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">{content[0]}</span><h1>{content[1]}</h1><p>{content[2]}</p></section><div className="quiet-panel"><PitchMark compact /><h3>{session ? 'Tu cuenta está lista' : 'Ingresá con Google'}</h3><p>{session ? 'Desde acá vas a poder consultar tus datos y próximos turnos.' : 'Podés explorar sin cuenta y registrarte al momento de reservar.'}</p>{session ? <Button variant="secondary" size="sm" type="button" onClick={onLogout}>Cerrar sesión</Button> : <Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button>}</div></main></div>;
+function ProfileScreen({ profile, session, onChange, onLogin, onLogout, onSave }) {
+  const [draft, setDraft] = useState({ nombre: profile?.nombre || session?.user?.name || '', whatsapp: profile?.whatsapp || '' });
+  const [message, setMessage] = useState('');
+  if (!session) return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><span className="avatar-button">GO</span></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TU CUENTA</span><h1>Perfil</h1><p>Ingresá para guardar tus datos de reserva.</p></section><div className="quiet-panel"><PitchMark compact /><h3>Ingresá con Google</h3><p>Vas a poder guardar tu nombre y WhatsApp para reservar más rápido.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div></main></div>;
+  const save = async (event) => {
+    event.preventDefault();
+    try { await onSave(draft); setMessage('Datos de reserva guardados.'); } catch (error) { setMessage(error.message); }
+  };
+  const isAdmin = profile?.role === 'admin_cancha' || profile?.role === 'superadmin';
+  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TU CUENTA</span><h1>Mi cuenta</h1><p>{session.email}</p></section><form className="profile-form" onSubmit={save}><div><h2>Datos para reservar</h2><p>Se completan automáticamente cuando pedís un turno.</p></div><label>Nombre para las reservas<Input required minLength="2" value={draft.nombre} onChange={(event) => setDraft({ ...draft, nombre: event.target.value })} /></label><label>WhatsApp<Input required inputMode="tel" value={draft.whatsapp} onChange={(event) => setDraft({ ...draft, whatsapp: event.target.value })} placeholder="11 5555 5555" /></label><Button type="submit">Guardar datos <Icon name="check" size={16} /></Button>{message && <p className={message.includes('guardados') ? 'form-success' : 'form-error'}>{message}</p>}</form><section className="profile-links"><h2>Accesos rápidos</h2><button type="button" onClick={() => onChange('bookings')}><span><Icon name="ticket" size={18} /><strong>Mis turnos</strong></span><Icon name="chevron" size={18} /></button><button type="button" onClick={() => onChange('saved')}><span><Icon name="heart" size={18} /><strong>Guardados</strong></span><Icon name="chevron" size={18} /></button>{isAdmin && <a href="/admin"><span><Icon name="pitch" size={18} /><strong>Panel de gestión</strong></span><Icon name="arrow" size={18} /></a>}</section><Button className="profile-logout" variant="secondary" size="sm" type="button" onClick={onLogout}>Cerrar sesión</Button></main></div>;
 }
 
 function dateForSelection(selection) {
@@ -163,6 +170,7 @@ export default function Reservas() {
   const [surfaceFilter, setSurfaceFilter] = useState('');
   const [saved, setSaved] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({ name: '', phone: '' });
   const [error, setError] = useState('');
 
@@ -189,6 +197,11 @@ export default function Reservas() {
   useEffect(() => {
     if (!session?.user) return;
     apiFetch('/api/guardados').then(readApiResponse).then((items) => setSaved(items.map((item) => Number(item.cancha_id)))).catch(() => setSaved([]));
+  }, [session]);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    apiFetch('/api/perfil').then(readApiResponse).then(setProfile).catch(() => setProfile(null));
   }, [session]);
 
   useEffect(() => {
@@ -263,12 +276,13 @@ export default function Reservas() {
     setScreen('booking');
   };
   const confirmBooking = async () => {
-    const bookingName = form.name.trim() || session?.user?.name?.trim();
-    if (!bookingName || form.phone.replace(/\D/g, '').length < 8) return setError('Completá tu nombre y un WhatsApp válido.');
+    const bookingName = form.name.trim() || profile?.nombre?.trim() || session?.user?.name?.trim();
+    const bookingPhone = form.phone || profile?.whatsapp || '';
+    if (!bookingName || bookingPhone.replace(/\D/g, '').length < 8) return setError('Completá tu nombre y un WhatsApp válido.');
     try {
       const result = await readApiResponse(await apiFetch('/api/reservas', {
         method: 'POST',
-        body: JSON.stringify({ nombre: bookingName, telefono: form.phone, fecha: dateForSelection(selectedDate), hora: selectedTime, cancha_id: selectedCourt.id }),
+        body: JSON.stringify({ nombre: bookingName, telefono: bookingPhone, fecha: dateForSelection(selectedDate), hora: selectedTime, cancha_id: selectedCourt.id }),
       }));
       setBookings((current) => [{ id: result.id, court: selectedCourt.name, neighborhood: selectedCourt.neighborhood, date: result.fecha, time: result.hora, type: selectedCourt.type, status: 'Confirmado', price: result.precio_ars || selectedCourt.price, canCancel: true, whatsapp: '' }, ...current]);
       setScreen('success');
@@ -294,13 +308,17 @@ export default function Reservas() {
     }
   };
   const logout = async () => { await authClient.signOut(); setScreen('explore'); };
+  const saveProfile = async (draft) => {
+    const nextProfile = await readApiResponse(await apiFetch('/api/perfil', { method: 'PUT', body: JSON.stringify(draft) }));
+    setProfile(nextProfile);
+  };
   if (isPending) return <div className="quiet-panel">Cargando tu sesión…</div>;
   if (screen === 'detail') return <><DetailScreen court={selectedCourt} date={selectedDate} setDate={setSelectedDate} time={selectedTime} setTime={setSelectedTime} onBack={backToExplore} onReserve={beginBooking} saved={saved} onToggleSaved={toggleSaved} /><BottomNav current="explore" onChange={setScreen} /></>;
-  if (screen === 'booking') return <BookingScreen court={selectedCourt} date={selectedDate} time={selectedTime} form={form} setForm={setForm} onBack={() => setScreen('detail')} onConfirm={confirmBooking} error={error} defaultName={session?.user?.name} />;
+  if (screen === 'booking') return <BookingScreen court={selectedCourt} date={selectedDate} time={selectedTime} form={form} setForm={setForm} onBack={() => setScreen('detail')} onConfirm={confirmBooking} error={error} defaultName={profile?.nombre || session?.user?.name} defaultPhone={profile?.whatsapp} />;
   if (screen === 'success') return <SuccessScreen court={selectedCourt} date={selectedDate} time={selectedTime} onDone={backToExplore} />;
   const openAccount = () => session?.user ? setScreen('profile') : loginWithGoogle();
   if (screen === 'bookings') return <><BookingsScreen bookings={bookings} onChange={setScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} error={error} /><BottomNav current="bookings" onChange={setScreen} /></>;
   if (screen === 'saved') return <><SavedScreen courts={courts} saved={saved} onOpen={openCourt} onToggleSaved={toggleSaved} onChange={setScreen} session={session} onLogin={loginWithGoogle} /><BottomNav current="saved" onChange={setScreen} /></>;
-  if (screen === 'profile') return <><SimplePage kind="profile" onChange={setScreen} session={session} onLogin={openAccount} onLogout={logout} /><BottomNav current="profile" onChange={setScreen} /></>;
+  if (screen === 'profile') return <><ProfileScreen key={profile?.email || session?.user?.id || 'guest'} profile={profile} session={session?.user} onChange={setScreen} onLogin={loginWithGoogle} onLogout={logout} onSave={saveProfile} /><BottomNav current="profile" onChange={setScreen} /></>;
   return <><ExploreScreen courts={courts} query={query} setQuery={setQuery} selectedDate={selectedDate} setSelectedDate={setSelectedDate} typeFilter={typeFilter} setTypeFilter={setTypeFilter} surfaceFilter={surfaceFilter} setSurfaceFilter={setSurfaceFilter} onOpen={openCourt} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} /><BottomNav current="explore" onChange={setScreen} /></>;
 }

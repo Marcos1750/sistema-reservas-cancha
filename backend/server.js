@@ -80,6 +80,13 @@ function validateCourt(body) {
   return { nombre, barrio, direccion, tipo, superficie, descripcion, whatsapp, indoor };
 }
 
+function validateProfile(body) {
+  const nombre = cleanText(body.nombre, 120);
+  const whatsapp = cleanText(body.whatsapp, 20).replace(/\D/g, '');
+  if (nombre.length < 2 || !/^\d{7,15}$/.test(whatsapp)) return { error: 'Completá un nombre y WhatsApp válidos' };
+  return { nombre, whatsapp };
+}
+
 function validateBlock(body) {
   const fecha = cleanText(body.fecha, 10);
   const motivo = cleanText(body.motivo || '', 250);
@@ -168,6 +175,40 @@ app.get('/api/session', async (req, res, next) => {
     return res.json({ user: await syncConfiguredRole(current) });
   } catch (error) {
     return next(error);
+  }
+});
+
+app.get('/api/perfil', requireAuth(), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(p.nombre_reserva, ''), u.name) AS nombre,
+              p.whatsapp, u.email
+         FROM "user" u
+         LEFT JOIN perfiles_usuario p ON p.user_id = u.id
+        WHERE u.id = $1`,
+      [req.user.id],
+    );
+    res.json({ ...rows[0], role: req.user.role });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/perfil', requireAuth(), async (req, res, next) => {
+  const profile = validateProfile(req.body || {});
+  if (profile.error) return res.status(400).json(profile);
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO perfiles_usuario (user_id, nombre_reserva, whatsapp)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE
+         SET nombre_reserva = EXCLUDED.nombre_reserva, whatsapp = EXCLUDED.whatsapp, updated_at = NOW()
+       RETURNING nombre_reserva AS nombre, whatsapp`,
+      [req.user.id, profile.nombre, profile.whatsapp],
+    );
+    res.json({ ...rows[0], email: req.user.email, role: req.user.role });
+  } catch (error) {
+    next(error);
   }
 });
 
@@ -661,4 +702,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, canCustomerCancel, prepare, start, validateReservation };
+export { app, canCustomerCancel, prepare, start, validateProfile, validateReservation };
