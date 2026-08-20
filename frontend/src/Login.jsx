@@ -105,7 +105,7 @@ function BookingScreen({ court, date, time, form, setForm, onBack, onConfirm, er
 }
 
 function SuccessScreen({ court, date, time, onDone }) {
-  return <div className="success-screen"><div className="success-grid" /><div className="success-mark"><Icon name="check" size={28} /></div><span className="section-kicker">RESERVA CONFIRMADA</span><h1>El partido ya<br /><em>tiene cancha.</em></h1><p>{court.name}<br />{date} a las {time}</p><div className="success-ticket"><div><small>UBICACIÓN</small><strong>{court.neighborhood}</strong></div><div><small>TIPO</small><strong>{court.type}</strong></div><div><small>TOTAL</small><strong>{formatARS(court.price)}</strong></div></div><Button type="button" onClick={onDone}>Volver a explorar <Icon name="arrow" size={17} /></Button></div>;
+  return <div className="success-screen"><div className="success-grid" /><div className="success-mark"><Icon name="check" size={28} /></div><span className="section-kicker">RESERVA CONFIRMADA</span><h1>El partido ya<br /><em>tiene cancha.</em></h1><p>{court.name}<br />{date} a las {time}</p><div className="success-ticket"><div><small>UBICACIÓN</small><strong>{court.neighborhood}</strong></div><div><small>TIPO</small><strong>{court.type}</strong></div><div><small>TOTAL</small><strong>{formatARS(court.price)}</strong></div></div><button className="primary-button" type="button" onClick={onDone}>Volver a explorar <Icon name="arrow" size={17} /></button></div>;
 }
 
 function BookingsScreen({ bookings, onOpen, onChange, session, onLogin }) {
@@ -248,7 +248,13 @@ export default function Reservas() {
       setError(requestError.message);
     }
   };
-  const backToExplore = () => { setScreen('explore'); setSelectedTime(''); setForm((current) => ({ ...current, phone: '' })); };
+  const backToExplore = () => {
+    setScreen('explore');
+    setSelectedTime('');
+    setError('');
+    setForm((current) => ({ ...current, phone: '' }));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   const logout = async () => { await authClient.signOut(); setScreen('explore'); };
   if (isPending) return <div className="quiet-panel">Cargando tu sesión…</div>;
   if (screen === 'detail') return <><DetailScreen court={selectedCourt} date={selectedDate} setDate={setSelectedDate} time={selectedTime} setTime={setSelectedTime} onBack={backToExplore} onReserve={beginBooking} saved={saved} onToggleSaved={toggleSaved} /><BottomNav current="explore" onChange={setScreen} /></>;
