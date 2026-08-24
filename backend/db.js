@@ -20,9 +20,25 @@ const pool = new Pool({
 
 async function migrate(client = pool) {
   await client.query(`
+    CREATE TABLE IF NOT EXISTS complejos (
+      id BIGSERIAL PRIMARY KEY,
+      owner_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE RESTRICT,
+      nombre TEXT NOT NULL CHECK (char_length(trim(nombre)) BETWEEN 2 AND 120),
+      ciudad TEXT NOT NULL DEFAULT '',
+      provincia TEXT NOT NULL DEFAULT '',
+      direccion TEXT NOT NULL DEFAULT '',
+      whatsapp TEXT NOT NULL DEFAULT '',
+      descripcion TEXT NOT NULL DEFAULT '',
+      foto_url TEXT NOT NULL DEFAULT '',
+      activo BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS canchas (
       id BIGSERIAL PRIMARY KEY,
       owner_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE RESTRICT,
+      complejo_id BIGINT REFERENCES complejos(id) ON DELETE CASCADE,
       nombre TEXT NOT NULL CHECK (char_length(trim(nombre)) BETWEEN 2 AND 120),
       barrio TEXT NOT NULL DEFAULT '',
       ciudad TEXT NOT NULL DEFAULT '',
@@ -98,6 +114,13 @@ async function migrate(client = pool) {
       PRIMARY KEY (user_id, cancha_id)
     );
 
+    CREATE TABLE IF NOT EXISTS complejos_guardados (
+      user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, complejo_id)
+    );
+
     CREATE TABLE IF NOT EXISTS perfiles_usuario (
       user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
       nombre_reserva TEXT NOT NULL DEFAULT '',
@@ -132,6 +155,11 @@ async function migrate(client = pool) {
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_provincia TEXT NOT NULL DEFAULT '';
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_deporte TEXT NOT NULL DEFAULT '';
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_whatsapp TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_nombre TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_ciudad TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_provincia TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_whatsapp TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canchas ADD COLUMN IF NOT EXISTS complejo_id BIGINT REFERENCES complejos(id) ON DELETE CASCADE;
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS whatsapp TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS ciudad TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS provincia TEXT NOT NULL DEFAULT '';
@@ -148,14 +176,52 @@ async function migrate(client = pool) {
          ELSE 'Fútbol 5'
        END
      WHERE trim(deporte) = '' OR deporte NOT IN ('Fútbol 5', 'Pádel', 'Tenis');
+    DO $$
+    DECLARE
+      cancha_actual RECORD;
+      nuevo_complejo_id BIGINT;
+    BEGIN
+      FOR cancha_actual IN SELECT * FROM canchas WHERE complejo_id IS NULL LOOP
+        INSERT INTO complejos (owner_user_id, nombre, ciudad, provincia, direccion, whatsapp, descripcion)
+        VALUES (
+          cancha_actual.owner_user_id,
+          cancha_actual.nombre,
+          cancha_actual.ciudad,
+          cancha_actual.provincia,
+          cancha_actual.direccion,
+          cancha_actual.whatsapp,
+          cancha_actual.descripcion
+        )
+        RETURNING id INTO nuevo_complejo_id;
+
+        UPDATE canchas
+           SET complejo_id = nuevo_complejo_id,
+               nombre = 'Cancha 1'
+         WHERE id = cancha_actual.id;
+      END LOOP;
+    END $$;
+    ALTER TABLE canchas ALTER COLUMN complejo_id SET NOT NULL;
+    INSERT INTO complejos_guardados (user_id, complejo_id, created_at)
+    SELECT DISTINCT cg.user_id, c.complejo_id, cg.created_at
+      FROM canchas_guardadas cg
+      JOIN canchas c ON c.id = cg.cancha_id
+    ON CONFLICT (user_id, complejo_id) DO NOTHING;
     UPDATE reservas r
        SET cancha_nombre = c.nombre,
            cancha_ciudad = c.ciudad,
            cancha_provincia = c.provincia,
            cancha_deporte = c.deporte,
            cancha_whatsapp = c.whatsapp
-      FROM canchas c
+     FROM canchas c
      WHERE r.cancha_id = c.id AND trim(r.cancha_nombre) = '';
+    UPDATE reservas r
+       SET complejo_nombre = co.nombre,
+           complejo_ciudad = co.ciudad,
+           complejo_provincia = co.provincia,
+           complejo_whatsapp = co.whatsapp
+      FROM canchas c
+      JOIN complejos co ON co.id = c.complejo_id
+     WHERE r.cancha_id = c.id AND trim(r.complejo_nombre) = '';
     ALTER TABLE bloqueos ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE CASCADE;
     ALTER TABLE bloqueos DROP CONSTRAINT IF EXISTS bloqueos_fecha_key;
 
@@ -169,8 +235,11 @@ async function migrate(client = pool) {
     CREATE INDEX IF NOT EXISTS reservas_user_idx ON reservas (user_id);
     CREATE INDEX IF NOT EXISTS reservas_recurrencia_idx ON reservas (recurrencia_id);
     CREATE INDEX IF NOT EXISTS canchas_guardadas_user_idx ON canchas_guardadas (user_id);
+    CREATE INDEX IF NOT EXISTS complejos_guardados_user_idx ON complejos_guardados (user_id);
     CREATE INDEX IF NOT EXISTS horarios_cancha_dia_idx ON horarios_cancha (cancha_id, dia_semana);
     CREATE INDEX IF NOT EXISTS canchas_owner_idx ON canchas (owner_user_id);
+    CREATE INDEX IF NOT EXISTS canchas_complejo_idx ON canchas (complejo_id);
+    CREATE INDEX IF NOT EXISTS complejos_owner_idx ON complejos (owner_user_id);
     CREATE UNIQUE INDEX IF NOT EXISTS bloqueos_cancha_fecha_uidx
       ON bloqueos (cancha_id, fecha) WHERE cancha_id IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS bloqueos_global_fecha_uidx

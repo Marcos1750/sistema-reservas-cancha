@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { canCustomerCancel, validateCourt, validateProfile, validateReservation } = await import('../server.js');
+const { canCustomerCancel, validateComplex, validateCourt, validateProfile, validateReservation } = await import('../server.js');
 
 function response() {
   return {
@@ -79,11 +79,18 @@ test('el perfil exige datos válidos para completar una reserva', () => {
   assert.deepEqual(validateProfile({ nombre: 'Marcos', whatsapp: '11 5555 5555' }), { nombre: 'Marcos', whatsapp: '1155555555' });
 });
 
-test('una cancha exige ciudad, provincia y un deporte admitido', () => {
-  const base = { nombre: 'Cancha Centro', ciudad: 'Rosario', provincia: 'Santa Fe', deporte: 'Pádel', whatsapp: '3415551234' };
-  assert.equal(validateCourt({ ...base, provincia: '' }).error, 'Nombre, ciudad, provincia y deporte son obligatorios');
-  assert.equal(validateCourt({ ...base, deporte: 'Fútbol 7' }).error, 'Nombre, ciudad, provincia y deporte son obligatorios');
+test('un complejo exige ubicación y WhatsApp válidos', () => {
+  const base = { nombre: 'Complejo Centro', ciudad: 'Rosario', provincia: 'Santa Fe', direccion: 'San Martín 123', whatsapp: '3415551234' };
+  assert.equal(validateComplex({ ...base, provincia: '' }).error, 'Nombre, ciudad, provincia y dirección son obligatorios');
+  assert.deepEqual(validateComplex(base), {
+    nombre: 'Complejo Centro', ciudad: 'Rosario', provincia: 'Santa Fe', direccion: 'San Martín 123', descripcion: '', whatsapp: '5493415551234', fotoUrl: '',
+  });
+});
+
+test('una cancha exige nombre y un deporte admitido', () => {
+  const base = { nombre: 'Cancha Centro', deporte: 'Pádel' };
+  assert.equal(validateCourt({ ...base, deporte: 'Fútbol 7' }).error, 'Nombre y deporte son obligatorios');
   assert.deepEqual(validateCourt(base), {
-    nombre: 'Cancha Centro', ciudad: 'Rosario', provincia: 'Santa Fe', direccion: '', deporte: 'Pádel', descripcion: '', whatsapp: '5493415551234', indoor: false,
+    nombre: 'Cancha Centro', deporte: 'Pádel', descripcion: '', indoor: false,
   });
 });

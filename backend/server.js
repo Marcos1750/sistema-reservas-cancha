@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { del } from '@vercel/blob';
+import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import {
   auth,
@@ -70,20 +72,33 @@ function validateReservation(body) {
   return { nombre, telefono, fecha, hora, canchaId, recurrente, semanas };
 }
 
-function validateCourt(body) {
+function validateComplex(body) {
   const nombre = cleanText(body.nombre, 120);
   const ciudad = cleanText(body.ciudad, 100);
   const provincia = cleanText(body.provincia, 100);
   const direccion = cleanText(body.direccion, 180);
-  const deporte = cleanText(body.deporte || 'Fútbol 5', 40);
   const descripcion = cleanText(body.descripcion || '', 500);
   const whatsapp = normalizeWhatsApp(body.whatsapp || '');
-  const indoor = Boolean(body.indoor);
-  if (nombre.length < 2 || !ciudad || !provincia || !DEPORTES.includes(deporte)) {
-    return { error: 'Nombre, ciudad, provincia y deporte son obligatorios' };
+  const fotoUrl = cleanText(body.foto_url || '', 1000);
+  if (nombre.length < 2 || !ciudad || !provincia || !direccion) {
+    return { error: 'Nombre, ciudad, provincia y dirección son obligatorios' };
   }
   if (!whatsapp) return { error: 'Ingresá un WhatsApp válido con código de país, por ejemplo 54911...' };
-  return { nombre, ciudad, provincia, direccion, deporte, descripcion, whatsapp, indoor };
+  if (fotoUrl && !/^https:\/\/[a-z0-9.-]+\.blob\.vercel-storage\.com\//i.test(fotoUrl)) {
+    return { error: 'La URL de la foto no es válida' };
+  }
+  return { nombre, ciudad, provincia, direccion, descripcion, whatsapp, fotoUrl };
+}
+
+function validateCourt(body) {
+  const nombre = cleanText(body.nombre, 120);
+  const deporte = cleanText(body.deporte || 'Fútbol 5', 40);
+  const descripcion = cleanText(body.descripcion || '', 500);
+  const indoor = Boolean(body.indoor);
+  if (nombre.length < 2 || !DEPORTES.includes(deporte)) {
+    return { error: 'Nombre y deporte son obligatorios' };
+  }
+  return { nombre, deporte, descripcion, indoor };
 }
 
 function validateProfile(body) {
@@ -131,13 +146,33 @@ function canCustomerCancel(reservation, now = new Date()) {
 
 async function courtAccess(req, res, next) {
   try {
-    const { rows } = await pool.query('SELECT * FROM canchas WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query(
+      `SELECT c.*, co.owner_user_id AS complejo_owner_user_id, co.whatsapp AS complejo_whatsapp
+         FROM canchas c JOIN complejos co ON co.id = c.complejo_id
+        WHERE c.id = $1`,
+      [req.params.id],
+    );
     const court = rows[0];
     if (!court) return res.status(404).json({ error: 'Cancha no encontrada' });
-    if (req.user.role !== 'superadmin' && court.owner_user_id !== req.user.id) {
+    if (req.user.role !== 'superadmin' && court.complejo_owner_user_id !== req.user.id) {
       return res.status(403).json({ error: 'No tenés acceso a esta cancha' });
     }
     req.court = court;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function complexAccess(req, res, next) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM complejos WHERE id = $1', [req.params.id]);
+    const complex = rows[0];
+    if (!complex) return res.status(404).json({ error: 'Complejo no encontrado' });
+    if (req.user.role !== 'superadmin' && complex.owner_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tenés acceso a este complejo' });
+    }
+    req.complex = complex;
     return next();
   } catch (error) {
     return next(error);
@@ -224,17 +259,66 @@ app.put('/api/perfil', requireAuth(), async (req, res, next) => {
   }
 });
 
-// La API pública sólo expone disponibilidad, nunca datos personales.
+// La API pública sólo expone disponibilidad y datos comerciales.
+app.get('/api/complejos', async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT co.id, co.nombre, co.ciudad, co.provincia, co.direccion, co.descripcion, co.foto_url,
+              COUNT(DISTINCT c.id)::int AS cantidad_canchas,
+              COALESCE(array_agg(DISTINCT c.deporte) FILTER (WHERE c.id IS NOT NULL), '{}') AS deportes,
+              COALESCE(MIN(h.precio_ars) FILTER (WHERE h.activo = true), 0) AS precio_desde
+         FROM complejos co
+         LEFT JOIN canchas c ON c.complejo_id = co.id AND c.activa = true
+         LEFT JOIN horarios_cancha h ON h.cancha_id = c.id AND h.activo = true
+        WHERE co.activo = true
+        GROUP BY co.id
+        HAVING COUNT(c.id) > 0
+        ORDER BY co.nombre`,
+    );
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/complejos/:id', async (req, res, next) => {
+  try {
+    const complexResult = await pool.query(
+      `SELECT id, nombre, ciudad, provincia, direccion, descripcion, foto_url
+         FROM complejos WHERE id = $1 AND activo = true`,
+      [req.params.id],
+    );
+    const complex = complexResult.rows[0];
+    if (!complex) return res.status(404).json({ error: 'Complejo no encontrado' });
+    const { rows } = await pool.query(
+      `SELECT c.id, c.nombre, c.deporte, c.descripcion, c.indoor,
+              COALESCE(MIN(h.precio_ars) FILTER (WHERE h.activo = true), 0) AS precio_desde
+         FROM canchas c
+         LEFT JOIN horarios_cancha h ON h.cancha_id = c.id
+        WHERE c.complejo_id = $1 AND c.activa = true
+        GROUP BY c.id
+        ORDER BY c.nombre`,
+      [req.params.id],
+    );
+    res.json({ ...complex, canchas: rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Se conserva temporalmente para clientes anteriores.
 app.get('/api/canchas', async (_req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.id, c.nombre, c.ciudad, c.provincia, c.direccion, c.deporte,
-              c.descripcion, c.indoor, COALESCE(MIN(h.precio_ars), 0) AS precio_desde
+      `SELECT c.id, c.nombre, co.ciudad, co.provincia, co.direccion, c.deporte,
+              c.descripcion, c.indoor, co.id AS complejo_id, co.nombre AS complejo_nombre,
+              co.foto_url, COALESCE(MIN(h.precio_ars), 0) AS precio_desde
          FROM canchas c
+         JOIN complejos co ON co.id = c.complejo_id
          LEFT JOIN horarios_cancha h ON h.cancha_id = c.id AND h.activo = true
-        WHERE c.activa = true
-        GROUP BY c.id
-        ORDER BY c.nombre`,
+        WHERE c.activa = true AND co.activo = true
+        GROUP BY c.id, co.id
+        ORDER BY co.nombre, c.nombre`,
     );
     res.json(rows);
   } catch (error) {
@@ -245,8 +329,8 @@ app.get('/api/canchas', async (_req, res, next) => {
 app.get('/api/guardados', requireAuth(), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT cancha_id
-         FROM canchas_guardadas
+      `SELECT complejo_id
+         FROM complejos_guardados
         WHERE user_id = $1
         ORDER BY created_at DESC`,
       [req.user.id],
@@ -258,26 +342,26 @@ app.get('/api/guardados', requireAuth(), async (req, res, next) => {
 });
 
 app.post('/api/guardados', requireAuth(), async (req, res, next) => {
-  const canchaId = Number(req.body?.cancha_id);
-  if (!Number.isSafeInteger(canchaId) || canchaId < 1) return res.status(400).json({ error: 'Cancha inválida' });
+  const complejoId = Number(req.body?.complejo_id);
+  if (!Number.isSafeInteger(complejoId) || complejoId < 1) return res.status(400).json({ error: 'Complejo inválido' });
   try {
-    const court = await pool.query('SELECT id FROM canchas WHERE id = $1 AND activa = true', [canchaId]);
-    if (!court.rowCount) return res.status(404).json({ error: 'Cancha no encontrada' });
+    const complex = await pool.query('SELECT id FROM complejos WHERE id = $1 AND activo = true', [complejoId]);
+    if (!complex.rowCount) return res.status(404).json({ error: 'Complejo no encontrado' });
     await pool.query(
-      'INSERT INTO canchas_guardadas (user_id, cancha_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-      [req.user.id, canchaId],
+      'INSERT INTO complejos_guardados (user_id, complejo_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.user.id, complejoId],
     );
-    res.status(201).json({ cancha_id: canchaId });
+    res.status(201).json({ complejo_id: complejoId });
   } catch (error) {
     next(error);
   }
 });
 
-app.delete('/api/guardados/:canchaId', requireAuth(), async (req, res, next) => {
-  const canchaId = Number(req.params.canchaId);
-  if (!Number.isSafeInteger(canchaId) || canchaId < 1) return res.status(400).json({ error: 'Cancha inválida' });
+app.delete('/api/guardados/:complejoId', requireAuth(), async (req, res, next) => {
+  const complejoId = Number(req.params.complejoId);
+  if (!Number.isSafeInteger(complejoId) || complejoId < 1) return res.status(400).json({ error: 'Complejo inválido' });
   try {
-    await pool.query('DELETE FROM canchas_guardadas WHERE user_id = $1 AND cancha_id = $2', [req.user.id, canchaId]);
+    await pool.query('DELETE FROM complejos_guardados WHERE user_id = $1 AND complejo_id = $2', [req.user.id, complejoId]);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -343,7 +427,10 @@ app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'superadmin'])
   try {
     await client.query('BEGIN');
     const courtResult = await client.query(
-      'SELECT id, nombre, ciudad, provincia, deporte, whatsapp FROM canchas WHERE id = $1 AND activa = true FOR SHARE',
+      `SELECT c.id, c.nombre, c.deporte, co.nombre AS complejo_nombre, co.ciudad, co.provincia,
+              co.whatsapp, co.activo AS complejo_activo
+         FROM canchas c JOIN complejos co ON co.id = c.complejo_id
+        WHERE c.id = $1 AND c.activa = true AND co.activo = true FOR SHARE`,
       [reservation.canchaId],
     );
     const court = courtResult.rows[0];
@@ -379,11 +466,13 @@ app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'superadmin'])
     for (const occurrence of pricedDates) {
       const result = await client.query(
         `INSERT INTO reservas (nombre, telefono, fecha, hora, user_id, cancha_id, precio_ars, recurrencia_id,
-                               cancha_nombre, cancha_ciudad, cancha_provincia, cancha_deporte, cancha_whatsapp)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                               cancha_nombre, cancha_ciudad, cancha_provincia, cancha_deporte, cancha_whatsapp,
+                               complejo_nombre, complejo_ciudad, complejo_provincia, complejo_whatsapp)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
          RETURNING id, fecha::text, hora, cancha_id, precio_ars, recurrencia_id`,
         [reservation.nombre, reservation.telefono, occurrence.fecha, reservation.hora, req.user.id, reservation.canchaId, occurrence.price, recurrenceId,
-          court.nombre, court.ciudad, court.provincia, court.deporte, court.whatsapp],
+          court.nombre, court.ciudad, court.provincia, court.deporte, court.whatsapp,
+          court.complejo_nombre, court.ciudad, court.provincia, court.whatsapp],
       );
       rows.push(result.rows[0]);
     }
@@ -403,11 +492,14 @@ app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars, r.recurrencia_id,
               r.estado, r.created_at, c.id AS cancha_id, COALESCE(c.nombre, r.cancha_nombre, 'Cancha eliminada') AS cancha,
-              COALESCE(c.ciudad, r.cancha_ciudad, '') AS ciudad,
-              COALESCE(c.provincia, r.cancha_provincia, '') AS provincia,
+              COALESCE(co.nombre, r.complejo_nombre, '') AS complejo,
+              COALESCE(co.ciudad, r.complejo_ciudad, r.cancha_ciudad, '') AS ciudad,
+              COALESCE(co.provincia, r.complejo_provincia, r.cancha_provincia, '') AS provincia,
               COALESCE(c.deporte, r.cancha_deporte, '') AS deporte,
-              COALESCE(c.whatsapp, r.cancha_whatsapp, '') AS whatsapp
-         FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id
+              COALESCE(co.whatsapp, r.complejo_whatsapp, r.cancha_whatsapp, '') AS whatsapp
+         FROM reservas r
+         LEFT JOIN canchas c ON c.id = r.cancha_id
+         LEFT JOIN complejos co ON co.id = c.complejo_id
         WHERE r.user_id = $1 ORDER BY r.fecha, r.hora`,
       [req.user.id],
     );
@@ -420,8 +512,11 @@ app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
 app.post('/api/mis-reservas/:id/cancelar', requireAuth(), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT r.id, r.fecha::text, r.hora, r.estado, COALESCE(c.whatsapp, r.cancha_whatsapp) AS whatsapp
-         FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id
+      `SELECT r.id, r.fecha::text, r.hora, r.estado,
+              COALESCE(co.whatsapp, r.complejo_whatsapp, r.cancha_whatsapp) AS whatsapp
+         FROM reservas r
+         LEFT JOIN canchas c ON c.id = r.cancha_id
+         LEFT JOIN complejos co ON co.id = c.complejo_id
         WHERE r.id = $1 AND r.user_id = $2`,
       [req.params.id, req.user.id],
     );
@@ -448,11 +543,148 @@ app.get('/api/admin/session', requireAnyAdmin, (req, res) => {
   res.json({ authenticated: true, user: req.user });
 });
 
+app.post('/api/admin/uploads/complejo', requireAnyAdmin, async (req, res, next) => {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(503).json({ error: 'La carga de fotos todavía no está configurada en Vercel' });
+  }
+  try {
+    const result = await handleUpload({
+      request: req,
+      body: req.body,
+      onBeforeGenerateToken: async (pathname) => ({
+        allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        maximumSizeInBytes: 5 * 1024 * 1024,
+        addRandomSuffix: true,
+        tokenPayload: JSON.stringify({ userId: req.user.id, pathname }),
+      }),
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/complejos', requireAnyAdmin, async (req, res, next) => {
+  try {
+    const params = [];
+    const filter = req.user.role === 'superadmin' ? '' : 'WHERE co.owner_user_id = $1';
+    if (req.user.role !== 'superadmin') params.push(req.user.id);
+    const { rows } = await pool.query(
+      `SELECT co.*,
+              COALESCE(
+                jsonb_agg(
+                  jsonb_build_object(
+                    'id', c.id,
+                    'nombre', c.nombre,
+                    'deporte', c.deporte,
+                    'descripcion', c.descripcion,
+                    'indoor', c.indoor,
+                    'activa', c.activa,
+                    'precio_desde', COALESCE((SELECT MIN(h.precio_ars) FROM horarios_cancha h WHERE h.cancha_id = c.id AND h.activo = true), 0)
+                  ) ORDER BY c.nombre
+                ) FILTER (WHERE c.id IS NOT NULL), '[]'::jsonb
+              ) AS canchas
+         FROM complejos co
+         LEFT JOIN canchas c ON c.complejo_id = co.id
+         ${filter}
+        GROUP BY co.id
+        ORDER BY co.nombre`,
+      params,
+    );
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/complejos', requireAnyAdmin, async (req, res, next) => {
+  const complex = validateComplex(req.body || {});
+  const court = validateCourt(req.body?.cancha || {});
+  if (complex.error) return res.status(400).json(complex);
+  if (court.error) return res.status(400).json(court);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const complexResult = await client.query(
+      `INSERT INTO complejos (owner_user_id, nombre, ciudad, provincia, direccion, whatsapp, descripcion, foto_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.user.id, complex.nombre, complex.ciudad, complex.provincia, complex.direccion, complex.whatsapp, complex.descripcion, complex.fotoUrl],
+    );
+    const createdComplex = complexResult.rows[0];
+    const courtResult = await client.query(
+      `INSERT INTO canchas (owner_user_id, complejo_id, nombre, deporte, descripcion, indoor, barrio, ciudad, provincia, direccion, whatsapp, tipo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$4) RETURNING *`,
+      [req.user.id, createdComplex.id, court.nombre, court.deporte, court.descripcion, court.indoor,
+        complex.ciudad, complex.provincia, complex.direccion, complex.whatsapp],
+    );
+    await client.query('COMMIT');
+    res.status(201).json({ ...createdComplex, canchas: [courtResult.rows[0]] });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+app.patch('/api/admin/complejos/:id', requireAnyAdmin, complexAccess, async (req, res, next) => {
+  const complex = validateComplex({ ...req.complex, ...req.body });
+  if (complex.error) return res.status(400).json(complex);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE complejos SET nombre=$1, ciudad=$2, provincia=$3, direccion=$4, whatsapp=$5,
+              descripcion=$6, foto_url=$7, activo=COALESCE($8, activo), updated_at=NOW()
+        WHERE id=$9 RETURNING *`,
+      [complex.nombre, complex.ciudad, complex.provincia, complex.direccion, complex.whatsapp,
+        complex.descripcion, complex.fotoUrl, req.body.activo, req.params.id],
+    );
+    await pool.query(
+      `UPDATE canchas SET barrio=$1, ciudad=$1, provincia=$2, direccion=$3, whatsapp=$4, updated_at=NOW()
+        WHERE complejo_id=$5`,
+      [complex.ciudad, complex.provincia, complex.direccion, complex.whatsapp, req.params.id],
+    );
+    if (req.complex.foto_url && req.complex.foto_url !== complex.fotoUrl && process.env.BLOB_READ_WRITE_TOKEN) {
+      del(req.complex.foto_url).catch((error) => console.error('No se pudo borrar la foto anterior:', error.message));
+    }
+    res.json(rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/admin/complejos/:id', requireAnyAdmin, complexAccess, async (req, res, next) => {
+  try {
+    await pool.query('DELETE FROM complejos WHERE id = $1', [req.params.id]);
+    if (req.complex.foto_url && process.env.BLOB_READ_WRITE_TOKEN) {
+      del(req.complex.foto_url).catch((error) => console.error('No se pudo borrar la foto:', error.message));
+    }
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/complejos/:id/canchas', requireAnyAdmin, complexAccess, async (req, res, next) => {
+  const court = validateCourt(req.body || {});
+  if (court.error) return res.status(400).json(court);
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO canchas (owner_user_id, complejo_id, nombre, deporte, descripcion, indoor, barrio, ciudad, provincia, direccion, whatsapp, tipo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$4) RETURNING *`,
+      [req.complex.owner_user_id, req.complex.id, court.nombre, court.deporte, court.descripcion, court.indoor,
+        req.complex.ciudad, req.complex.provincia, req.complex.direccion, req.complex.whatsapp],
+    );
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/admin/canchas', requireAnyAdmin, async (req, res, next) => {
   try {
     const query = req.user.role === 'superadmin'
-      ? 'SELECT * FROM canchas ORDER BY nombre'
-      : 'SELECT * FROM canchas WHERE owner_user_id = $1 ORDER BY nombre';
+      ? 'SELECT c.*, co.nombre AS complejo_nombre FROM canchas c JOIN complejos co ON co.id = c.complejo_id ORDER BY co.nombre, c.nombre'
+      : 'SELECT c.*, co.nombre AS complejo_nombre FROM canchas c JOIN complejos co ON co.id = c.complejo_id WHERE co.owner_user_id = $1 ORDER BY co.nombre, c.nombre';
     const result = await pool.query(query, req.user.role === 'superadmin' ? [] : [req.user.id]);
     res.json(result.rows);
   } catch (error) {
@@ -461,18 +693,7 @@ app.get('/api/admin/canchas', requireAnyAdmin, async (req, res, next) => {
 });
 
 app.post('/api/admin/canchas', requireAnyAdmin, async (req, res, next) => {
-  const court = validateCourt(req.body || {});
-  if (court.error) return res.status(400).json(court);
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO canchas (owner_user_id, nombre, ciudad, provincia, direccion, whatsapp, deporte, descripcion, indoor, barrio, tipo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$3,$7) RETURNING *`,
-      [req.user.id, court.nombre, court.ciudad, court.provincia, court.direccion, court.whatsapp, court.deporte, court.descripcion, court.indoor],
-    );
-    res.status(201).json(rows[0]);
-  } catch (error) {
-    next(error);
-  }
+  res.status(410).json({ error: 'Creá la cancha dentro de un complejo' });
 });
 
 app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, res, next) => {
@@ -480,10 +701,10 @@ app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, re
   if (court.error) return res.status(400).json(court);
   try {
     const { rows } = await pool.query(
-      `UPDATE canchas SET nombre=$1,ciudad=$2,provincia=$3,direccion=$4,whatsapp=$5,deporte=$6,
-              descripcion=$7,indoor=$8,activa=COALESCE($9, activa),barrio=$2,tipo=$6,updated_at=NOW()
-        WHERE id=$10 RETURNING *`,
-      [court.nombre, court.ciudad, court.provincia, court.direccion, court.whatsapp, court.deporte, court.descripcion, court.indoor, req.body.activa, req.params.id],
+      `UPDATE canchas SET nombre=$1, deporte=$2, descripcion=$3, indoor=$4,
+              activa=COALESCE($5, activa), tipo=$2, updated_at=NOW()
+        WHERE id=$6 RETURNING *`,
+      [court.nombre, court.deporte, court.descripcion, court.indoor, req.body.activa, req.params.id],
     );
     res.json(rows[0]);
   } catch (error) {
@@ -589,15 +810,18 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
     let filter = '';
     if (req.user.role !== 'superadmin') {
       params.push(req.user.id);
-      filter = 'WHERE c.owner_user_id = $1';
+      filter = 'WHERE co.owner_user_id = $1';
     }
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars, r.recurrencia_id,
               r.estado, r.created_at, COALESCE(c.nombre, r.cancha_nombre, 'Cancha eliminada') AS cancha,
-              COALESCE(c.ciudad, r.cancha_ciudad, '') AS ciudad,
-              COALESCE(c.provincia, r.cancha_provincia, '') AS provincia,
+              COALESCE(co.nombre, r.complejo_nombre, '') AS complejo,
+              COALESCE(co.ciudad, r.complejo_ciudad, r.cancha_ciudad, '') AS ciudad,
+              COALESCE(co.provincia, r.complejo_provincia, r.cancha_provincia, '') AS provincia,
               COALESCE(c.deporte, r.cancha_deporte, '') AS deporte
-         FROM reservas r LEFT JOIN canchas c ON c.id = r.cancha_id ${filter}
+         FROM reservas r
+         LEFT JOIN canchas c ON c.id = r.cancha_id
+         LEFT JOIN complejos co ON co.id = c.complejo_id ${filter}
         ORDER BY r.fecha, r.hora`,
       params,
     );
@@ -610,13 +834,13 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
 app.delete('/api/admin/reservas/:id', requireAnyAdmin, async (req, res, next) => {
   try {
     const params = [req.params.id, req.user.id];
-    const filter = req.user.role === 'superadmin' ? '' : ' AND c.owner_user_id = $3';
+    const filter = req.user.role === 'superadmin' ? '' : ' AND co.owner_user_id = $3';
     if (req.user.role !== 'superadmin') params.push(req.user.id);
     const result = await pool.query(
       `UPDATE reservas r
           SET estado = 'cancelada', cancelled_at = NOW(), cancelled_by = $2,
               cancel_reason = 'Cancelada por administración'
-         FROM canchas c
+         FROM canchas c JOIN complejos co ON co.id = c.complejo_id
         WHERE r.id = $1 AND r.cancha_id = c.id AND r.estado = 'confirmada'${filter}
         RETURNING r.id`,
       params,
@@ -761,4 +985,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, canCustomerCancel, prepare, start, validateCourt, validateProfile, validateReservation };
+export { app, canCustomerCancel, prepare, start, validateComplex, validateCourt, validateProfile, validateReservation };
