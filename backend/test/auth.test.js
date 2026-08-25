@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { canCustomerCancel, validateComplex, validateCourt, validateProfile, validateReservation } = await import('../server.js');
+const { canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, validateComplex, validateCourt, validateProfile, validateReservation } = await import('../server.js');
 
 function response() {
   return {
@@ -72,6 +72,18 @@ test('el cliente puede cancelar hasta dos horas antes del turno', () => {
   assert.equal(canCustomerCancel(reservation, new Date('2026-08-20T14:00:00-03:00')), true);
   assert.equal(canCustomerCancel(reservation, new Date('2026-08-20T14:00:01-03:00')), false);
   assert.equal(canCustomerCancel({ ...reservation, estado: 'cancelada' }, new Date('2026-08-20T12:00:00-03:00')), false);
+});
+
+test('el cliente puede liberar una seña pendiente sin esperar la ventana de cancelación', () => {
+  const reservation = { estado: 'pendiente_pago', fecha: '2026-08-20', hora: '16:00-17:00' };
+  assert.equal(canCustomerReleaseReservation(reservation, new Date('2026-08-20T15:59:59-03:00')), true);
+  assert.equal(canCustomerReleaseReservation({ ...reservation, estado: 'expirada' }, new Date('2026-08-20T12:00:00-03:00')), false);
+});
+
+test('sólo acepta enlaces HTTPS de checkout', () => {
+  assert.equal(hasCheckoutUrl('https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=123'), true);
+  assert.equal(hasCheckoutUrl('http://www.mercadopago.com.ar/checkout'), false);
+  assert.equal(hasCheckoutUrl('no-es-un-enlace'), false);
 });
 
 test('el perfil exige datos válidos para completar una reserva', () => {

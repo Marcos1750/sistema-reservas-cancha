@@ -141,6 +141,25 @@ async function migrate(client = pool) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS pagos_reserva (
+      id BIGSERIAL PRIMARY KEY,
+      reserva_id BIGINT REFERENCES reservas(id) ON DELETE CASCADE,
+      recurrencia_id BIGINT REFERENCES reservas_recurrentes(id) ON DELETE CASCADE,
+      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE RESTRICT,
+      monto_ars INTEGER NOT NULL CHECK (monto_ars > 0),
+      porcentaje_sena SMALLINT NOT NULL CHECK (porcentaje_sena BETWEEN 1 AND 100),
+      estado TEXT NOT NULL DEFAULT 'pendiente',
+      preferencia_id TEXT UNIQUE,
+      pago_mp_id TEXT UNIQUE,
+      checkout_url TEXT,
+      expira_at TIMESTAMPTZ NOT NULL,
+      payload_mp JSONB,
+      consultado_mp_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (reserva_id IS NOT NULL OR recurrencia_id IS NOT NULL)
+    );
+
     ALTER TABLE reservas DROP CONSTRAINT IF EXISTS reservas_fecha_hora_key;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL;
@@ -159,6 +178,14 @@ async function migrate(client = pool) {
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_ciudad TEXT NOT NULL DEFAULT '';
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_provincia TEXT NOT NULL DEFAULT '';
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_whatsapp TEXT NOT NULL DEFAULT '';
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_owner_user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS expira_pago_at TIMESTAMPTZ;
+    ALTER TABLE pagos_reserva ADD COLUMN IF NOT EXISTS consultado_mp_at TIMESTAMPTZ;
+    ALTER TABLE complejos ADD COLUMN IF NOT EXISTS sena_porcentaje SMALLINT NOT NULL DEFAULT 10 CHECK (sena_porcentaje BETWEEN 1 AND 100);
+    ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_user_id TEXT;
+    ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_access_token TEXT;
+    ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_refresh_token TEXT;
+    ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_token_expires_at TIMESTAMPTZ;
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS complejo_id BIGINT REFERENCES complejos(id) ON DELETE CASCADE;
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS whatsapp TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS ciudad TEXT NOT NULL DEFAULT '';
@@ -218,22 +245,28 @@ async function migrate(client = pool) {
        SET complejo_nombre = co.nombre,
            complejo_ciudad = co.ciudad,
            complejo_provincia = co.provincia,
-           complejo_whatsapp = co.whatsapp
+           complejo_whatsapp = co.whatsapp,
+           complejo_owner_user_id = co.owner_user_id
       FROM canchas c
       JOIN complejos co ON co.id = c.complejo_id
-     WHERE r.cancha_id = c.id AND trim(r.complejo_nombre) = '';
+     WHERE r.cancha_id = c.id
+       AND (trim(r.complejo_nombre) = '' OR r.complejo_owner_user_id IS NULL);
     ALTER TABLE bloqueos ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE CASCADE;
     ALTER TABLE bloqueos DROP CONSTRAINT IF EXISTS bloqueos_fecha_key;
 
     DROP INDEX IF EXISTS reservas_cancha_fecha_hora_uidx;
     DROP INDEX IF EXISTS reservas_legacy_fecha_hora_uidx;
     CREATE UNIQUE INDEX reservas_cancha_fecha_hora_uidx
-      ON reservas (cancha_id, fecha, hora) WHERE cancha_id IS NOT NULL AND estado = 'confirmada';
+      ON reservas (cancha_id, fecha, hora) WHERE cancha_id IS NOT NULL AND estado IN ('confirmada', 'pendiente_pago');
     CREATE UNIQUE INDEX reservas_legacy_fecha_hora_uidx
       ON reservas (fecha, hora) WHERE cancha_id IS NULL AND estado = 'confirmada';
     CREATE INDEX IF NOT EXISTS reservas_fecha_idx ON reservas (fecha);
     CREATE INDEX IF NOT EXISTS reservas_user_idx ON reservas (user_id);
     CREATE INDEX IF NOT EXISTS reservas_recurrencia_idx ON reservas (recurrencia_id);
+    CREATE INDEX IF NOT EXISTS reservas_complejo_owner_idx ON reservas (complejo_owner_user_id);
+    CREATE INDEX IF NOT EXISTS pagos_reserva_reserva_idx ON pagos_reserva (reserva_id);
+    CREATE INDEX IF NOT EXISTS pagos_reserva_recurrencia_idx ON pagos_reserva (recurrencia_id);
+    CREATE INDEX IF NOT EXISTS pagos_reserva_estado_idx ON pagos_reserva (estado, expira_at);
     CREATE INDEX IF NOT EXISTS canchas_guardadas_user_idx ON canchas_guardadas (user_id);
     CREATE INDEX IF NOT EXISTS complejos_guardados_user_idx ON complejos_guardados (user_id);
     CREATE INDEX IF NOT EXISTS horarios_cancha_dia_idx ON horarios_cancha (cancha_id, dia_semana);

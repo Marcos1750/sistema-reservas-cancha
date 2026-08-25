@@ -11,7 +11,7 @@
     "vercel-build": "npm run build",
     "dev": "vite --config frontend/vite.config.mjs",
     "lint": "oxlint frontend",
-    "test": "node --test backend/test/*.test.js"
+    "test": "node --test backend/test/*.test.js frontend/test/*.test.js"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.3",

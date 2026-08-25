@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500" role="img" aria-label="Logo actual de New Match">
+  <defs>
+    <radialGradient id="glow" cx="75%" cy="0%" r="85%">
+      <stop offset="0" stop-color="#548e4a" stop-opacity=".2"/>
+      <stop offset=".55" stop-color="#0b0e0c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="500" fill="#0b0e0c"/>
+  <rect width="1200" height="500" fill="url(#glow)"/>
+  <g transform="translate(170 175)">
+    <g transform="rotate(-12 74 74)">
+      <circle cx="74" cy="74" r="67" fill="none" stroke="#b7ee55" stroke-width="9"/>
+      <path d="M48 47h52M39 82h70" stroke="#b7ee55" stroke-width="8" stroke-linecap="round"/>
+      <circle cx="74" cy="74" r="9" fill="#b7ee55"/>
+    </g>
+    <text x="190" y="97" fill="#f4f7f2" font-family="Arial, Helvetica, sans-serif" font-size="112" font-weight="800" letter-spacing="-8">NEW MATCH</text>
+  </g>
+  <text x="600" y="410" text-anchor="middle" fill="#9daaa0" font-family="Arial, Helvetica, sans-serif" font-size="27" letter-spacing="4">MARCA ACTUAL — VISTA AMPLIADA</text>
+</svg>
