@@ -177,7 +177,7 @@ function DetailScreen({ complex, court, onSelectCourt, date, setDate, time, setT
 
 function BookingScreen({ complex, court, date, time, form, setForm, repeatWeekly, setRepeatWeekly, repeatWeeks, setRepeatWeeks, onBack, onHome, onConfirm, error, defaultName, defaultPhone, submitting }) {
   const price = court.slotPrices?.[time] ?? court.price;
-  return <div className={`app-shell app-shell--booking sport-context sport-theme--${getSportTheme(court.sport)}`}><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onHome} /><span className="step-count">02 / 02</span></header><main className="booking-content"><div className="booking-summary"><VenueVisual complex={complex} sport={court.sport} sports={[court.sport]} /><div><span className="detail-eyebrow">TU TURNO</span><h2>{complex.name}</h2><strong className="booking-summary__court">{court.name}</strong><p><Icon name="calendar" size={13} /> {date} <span className="dot-separator">·</span> <Icon name="clock" size={13} /> {time}</p></div></div><div className="booking-divider" /><section className="form-section"><span className="section-kicker">DATOS DEL CAPITÁN</span><h1>¿A nombre de quién<br />reservamos?</h1><label>Nombre completo<Input value={form.name || defaultName || ''} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Martín Sosa" autoComplete="name" disabled={submitting} /></label><label>WhatsApp<Input value={form.phone || defaultPhone || ''} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="11 5555 5555" inputMode="tel" autoComplete="tel" disabled={submitting} /></label><section className="recurring-option"><label><input type="checkbox" checked={repeatWeekly} disabled={submitting} onChange={(event) => setRepeatWeekly(event.target.checked)} /><span><strong>Reservar horario fijo</strong><small>Repite este mismo día y horario todas las semanas.</small></span></label>{repeatWeekly && <label className="recurring-option__weeks">¿Por cuánto tiempo?<select value={repeatWeeks} disabled={submitting} onChange={(event) => setRepeatWeeks(Number(event.target.value))}><option value={4}>4 semanas</option><option value={8}>8 semanas</option><option value={12}>12 semanas</option></select></label>}</section>{error && <p className="form-error" role="alert">{error}</p>}</section></main><div className="sticky-cta sticky-cta--booking"><div><small>{repeatWeekly ? `Total por ${repeatWeeks} semanas` : 'Total del turno'}</small><strong>{formatARS(price * (repeatWeekly ? repeatWeeks : 1))}</strong></div><Button className="primary-button" type="button" disabled={submitting} onClick={onConfirm}>{submitting ? 'Preparando pago…' : repeatWeekly ? 'Confirmar horario fijo' : 'Confirmar reserva'} <Icon name="check" size={17} /></Button></div></div>;
+  return <div className={`app-shell app-shell--booking sport-context sport-theme--${getSportTheme(court.sport)}`}><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onHome} /><span className="step-count">02 / 02</span></header><main className="booking-content"><div className="booking-summary"><VenueVisual complex={complex} sport={court.sport} sports={[court.sport]} /><div><span className="detail-eyebrow">TU TURNO</span><h2>{complex.name}</h2><strong className="booking-summary__court">{court.name}</strong><p><Icon name="calendar" size={13} /> {date} <span className="dot-separator">·</span> <Icon name="clock" size={13} /> {time}</p></div></div><div className="booking-divider" /><section className="form-section"><span className="section-kicker">DATOS DEL CAPITÁN</span><h1>¿A nombre de quién<br />reservamos?</h1><label>Nombre completo<Input value={form.name || defaultName || ''} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Martín Sosa" autoComplete="name" disabled={submitting} /></label><label>WhatsApp<Input value={form.phone || defaultPhone || ''} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="11 5555 5555" inputMode="tel" autoComplete="tel" disabled={submitting} /></label>{!court.requiresDeposit && <p className="booking-payment-notice" role="status">{court.ownerReservationFree ? 'Reserva de propietario: confirmación inmediata, sin seña.' : 'Sin seña: la reserva se confirmará de inmediato.'}</p>}<section className="recurring-option"><label><input type="checkbox" checked={repeatWeekly} disabled={submitting} onChange={(event) => setRepeatWeekly(event.target.checked)} /><span><strong>Reservar horario fijo</strong><small>Repite este mismo día y horario todas las semanas.</small></span></label>{repeatWeekly && <label className="recurring-option__weeks">¿Por cuánto tiempo?<select value={repeatWeeks} disabled={submitting} onChange={(event) => setRepeatWeeks(Number(event.target.value))}><option value={4}>4 semanas</option><option value={8}>8 semanas</option><option value={12}>12 semanas</option></select></label>}</section>{error && <p className="form-error" role="alert">{error}</p>}</section></main><div className="sticky-cta sticky-cta--booking"><div><small>{repeatWeekly ? `Total por ${repeatWeeks} semanas` : 'Total del turno'}</small><strong>{formatARS(price * (repeatWeekly ? repeatWeeks : 1))}</strong></div><Button className="primary-button" type="button" disabled={submitting} onClick={onConfirm}>{submitting ? court.requiresDeposit ? 'Preparando pago…' : 'Confirmando…' : repeatWeekly ? 'Confirmar horario fijo' : 'Confirmar reserva'} <Icon name="check" size={17} /></Button></div></div>;
 }
 
 function SuccessScreen({ complex, court, date, time, onDone, repeatWeeks }) {
@@ -216,11 +216,11 @@ function ProfileScreen({ profile, session, onChange, onLogin, onLogout, onSave }
 }
 
 function mapApiComplex(item) {
-  return { id: Number(item.id), name: item.nombre, city: item.ciudad, province: item.provincia, address: item.direccion || 'Dirección a confirmar', description: item.descripcion || '', photoUrl: item.foto_url || '', courtCount: Number(item.cantidad_canchas || 0), sports: item.deportes || [], price: Number(item.precio_desde || 0), courts: [] };
+  return { id: Number(item.id), name: item.nombre, city: item.ciudad, province: item.provincia, address: item.direccion || 'Dirección a confirmar', description: item.descripcion || '', photoUrl: item.foto_url || '', ownerReservationFree: item.reserva_sin_sena === true, courtCount: Number(item.cantidad_canchas || 0), sports: item.deportes || [], price: Number(item.precio_desde || 0), courts: [] };
 }
 
-function mapApiCourt(item) {
-  return { id: Number(item.id), name: item.nombre, sport: item.deporte, description: item.descripcion || '', indoor: Boolean(item.indoor), price: Number(item.precio_desde || 0), slots: [], slotPrices: {} };
+function mapApiCourt(item, ownerReservationFree = false) {
+  return { id: Number(item.id), name: item.nombre, sport: item.deporte, description: item.descripcion || '', indoor: Boolean(item.indoor), ownerReservationFree, requiresDeposit: item.requiere_sena !== false && !ownerReservationFree, price: Number(item.precio_desde || 0), slots: [], slotPrices: {} };
 }
 
 export default function Reservas() {
@@ -284,7 +284,7 @@ export default function Reservas() {
     try {
       const draft = JSON.parse(pending);
       apiFetch(`/api/complejos/${draft.complexId}`).then(readApiResponse).then((item) => {
-        const complex = { ...mapApiComplex(item), courts: item.canchas.map(mapApiCourt) };
+        const complex = { ...mapApiComplex(item), courts: item.canchas.map((court) => mapApiCourt(court, item.reserva_sin_sena === true)) };
         const court = complex.courts.find((candidate) => candidate.id === Number(draft.courtId));
         setSelectedComplex(complex); setSelectedCourt(court || null); setSelectedDate(draft.date || dateOptions[0].value); setSelectedTime(draft.time || ''); sessionStorage.removeItem('pending-booking'); setScreen(court ? 'booking' : 'detail');
       }).catch(() => { sessionStorage.removeItem('pending-booking'); setScreen('explore'); });
@@ -329,7 +329,7 @@ export default function Reservas() {
     setError('');
     try {
       const item = await readApiResponse(await apiFetch(`/api/complejos/${summary.id}`));
-      const complex = { ...mapApiComplex(item), courts: item.canchas.map(mapApiCourt) };
+      const complex = { ...mapApiComplex(item), courts: item.canchas.map((court) => mapApiCourt(court, item.reserva_sin_sena === true)) };
       setSelectedComplex(complex); setSelectedCourt(complex.courts[0] || null); setSelectedTime(''); setAvailabilityStatus('loading'); setScreen('detail'); window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (requestError) { setError(requestError.message); }
   };
@@ -358,7 +358,19 @@ export default function Reservas() {
         setPendingCheckout({ reservationId: result.id, checkoutUrl: result.pago.checkout_url, complex: selectedComplex.name });
         return;
       }
-      throw new Error('No se recibió un enlace de pago válido. No se creó la reserva.');
+      if (result.requiere_pago || result.estado !== 'confirmada') throw new Error('No se pudo confirmar la reserva. Intentá nuevamente.');
+      const createdReservations = result.reservas || [result];
+      const createdBookings = createdReservations.map((item) => mapApiBooking({
+        ...item,
+        complejo: selectedComplex.name,
+        cancha: selectedCourt.name,
+        ciudad: selectedComplex.city,
+        provincia: selectedComplex.province,
+        deporte: selectedCourt.sport,
+        puede_cancelar: true,
+      }));
+      setBookings((current) => [...createdBookings, ...current]);
+      setScreen('success');
     } catch (requestError) { setError(requestError.message); } finally { setSubmittingBooking(false); }
   };
   const backToExplore = () => { setScreen('explore'); setSelectedTime(''); setError(''); setForm((current) => ({ ...current, phone: '' })); setRepeatWeekly(false); setRepeatWeeks(4); window.scrollTo({ top: 0, behavior: 'smooth' }); };

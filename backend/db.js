@@ -50,6 +50,7 @@ async function migrate(client = pool) {
       superficie TEXT NOT NULL DEFAULT 'Césped sintético',
       descripcion TEXT NOT NULL DEFAULT '',
       indoor BOOLEAN NOT NULL DEFAULT false,
+      requiere_sena BOOLEAN NOT NULL DEFAULT true,
       activa BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -145,7 +146,7 @@ async function migrate(client = pool) {
       id BIGSERIAL PRIMARY KEY,
       reserva_id BIGINT REFERENCES reservas(id) ON DELETE CASCADE,
       recurrencia_id BIGINT REFERENCES reservas_recurrentes(id) ON DELETE CASCADE,
-      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE RESTRICT,
+      complejo_id BIGINT REFERENCES complejos(id) ON DELETE SET NULL,
       monto_ars INTEGER NOT NULL CHECK (monto_ars > 0),
       porcentaje_sena SMALLINT NOT NULL CHECK (porcentaje_sena BETWEEN 1 AND 100),
       estado TEXT NOT NULL DEFAULT 'pendiente',
@@ -181,6 +182,11 @@ async function migrate(client = pool) {
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS complejo_owner_user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS expira_pago_at TIMESTAMPTZ;
     ALTER TABLE pagos_reserva ADD COLUMN IF NOT EXISTS consultado_mp_at TIMESTAMPTZ;
+    ALTER TABLE pagos_reserva ALTER COLUMN complejo_id DROP NOT NULL;
+    ALTER TABLE pagos_reserva DROP CONSTRAINT IF EXISTS pagos_reserva_complejo_id_fkey;
+    ALTER TABLE pagos_reserva
+      ADD CONSTRAINT pagos_reserva_complejo_id_fkey
+      FOREIGN KEY (complejo_id) REFERENCES complejos(id) ON DELETE SET NULL;
     ALTER TABLE complejos ADD COLUMN IF NOT EXISTS sena_porcentaje SMALLINT NOT NULL DEFAULT 10 CHECK (sena_porcentaje BETWEEN 1 AND 100);
     ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_user_id TEXT;
     ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_access_token TEXT;
@@ -191,6 +197,7 @@ async function migrate(client = pool) {
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS ciudad TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS provincia TEXT NOT NULL DEFAULT '';
     ALTER TABLE canchas ADD COLUMN IF NOT EXISTS deporte TEXT NOT NULL DEFAULT 'Fútbol 5';
+    ALTER TABLE canchas ADD COLUMN IF NOT EXISTS requiere_sena BOOLEAN NOT NULL DEFAULT true;
     UPDATE canchas
        SET ciudad = barrio
      WHERE trim(ciudad) = '' AND trim(barrio) <> '';
@@ -251,6 +258,14 @@ async function migrate(client = pool) {
       JOIN complejos co ON co.id = c.complejo_id
      WHERE r.cancha_id = c.id
        AND (trim(r.complejo_nombre) = '' OR r.complejo_owner_user_id IS NULL);
+    UPDATE reservas r
+       SET estado = 'confirmada',
+           expira_pago_at = NULL,
+           cancel_reason = NULL
+      FROM pagos_reserva p
+     WHERE p.estado = 'aprobado'
+       AND (p.reserva_id = r.id OR (p.recurrencia_id IS NOT NULL AND p.recurrencia_id = r.recurrencia_id))
+       AND r.estado IN ('pendiente_pago', 'expirada');
     ALTER TABLE bloqueos ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE CASCADE;
     ALTER TABLE bloqueos DROP CONSTRAINT IF EXISTS bloqueos_fecha_key;
 

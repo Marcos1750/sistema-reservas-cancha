@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, validateComplex, validateCourt, validateProfile, validateReservation } = await import('../server.js');
+const { canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation } = await import('../server.js');
 
 function response() {
   return {
@@ -58,6 +58,14 @@ test('una reserva nueva exige una cancha concreta', () => {
   );
 });
 
+test('sólo el propietario reserva su propia cancha sin seña', () => {
+  const courtWithDeposit = { requiere_sena: true, complejo_owner_user_id: 'owner-1' };
+  assert.equal(requiresReservationPayment(courtWithDeposit, 'owner-1'), false);
+  assert.equal(requiresReservationPayment(courtWithDeposit, 'admin-2'), true);
+  assert.equal(requiresReservationPayment(courtWithDeposit, 'superadmin-1'), true);
+  assert.equal(requiresReservationPayment({ ...courtWithDeposit, requiere_sena: false }, 'cliente-1'), false);
+});
+
 test('un horario fijo valida la cantidad de semanas', () => {
   const base = { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', cancha_id: 7, recurrente: true };
   assert.equal(validateReservation({ ...base, semanas: 1 }).error, 'La cantidad de semanas es inválida');
@@ -103,6 +111,8 @@ test('una cancha exige nombre y un deporte admitido', () => {
   const base = { nombre: 'Cancha Centro', deporte: 'Pádel' };
   assert.equal(validateCourt({ ...base, deporte: 'Fútbol 7' }).error, 'Nombre y deporte son obligatorios');
   assert.deepEqual(validateCourt(base), {
-    nombre: 'Cancha Centro', deporte: 'Pádel', descripcion: '', indoor: false,
+    nombre: 'Cancha Centro', deporte: 'Pádel', descripcion: '', indoor: false, requiereSena: true,
   });
+  assert.equal(validateCourt({ ...base, requiere_sena: false }).requiereSena, false);
+  assert.equal(validateCourt({ ...base, requiere_sena: 'false' }).error, 'La configuración de seña es inválida');
 });
