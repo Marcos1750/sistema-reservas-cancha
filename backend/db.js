@@ -161,6 +161,85 @@ async function migrate(client = pool) {
       CHECK (reserva_id IS NOT NULL OR recurrencia_id IS NOT NULL)
     );
 
+    CREATE TABLE IF NOT EXISTS planes_suscripcion (
+      codigo TEXT PRIMARY KEY CHECK (codigo IN ('fundador', 'estandar', 'pro')),
+      nombre TEXT NOT NULL,
+      precio_ars INTEGER NOT NULL CHECK (precio_ars >= 0),
+      max_complejos SMALLINT NOT NULL CHECK (max_complejos > 0),
+      max_canchas SMALLINT NOT NULL CHECK (max_canchas > 0),
+      prueba_dias SMALLINT NOT NULL DEFAULT 14 CHECK (prueba_dias >= 0),
+      activo BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS precios_plan_suscripcion (
+      id BIGSERIAL PRIMARY KEY,
+      plan_codigo TEXT NOT NULL REFERENCES planes_suscripcion(codigo) ON DELETE CASCADE,
+      precio_ars INTEGER NOT NULL CHECK (precio_ars >= 0),
+      vigente_desde TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      creado_por TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (plan_codigo, vigente_desde)
+    );
+
+    CREATE TABLE IF NOT EXISTS datos_fiscales_suscripcion (
+      user_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+      razon_social TEXT NOT NULL DEFAULT '',
+      cuit TEXT NOT NULL DEFAULT '',
+      condicion_fiscal TEXT NOT NULL DEFAULT '',
+      domicilio TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS suscripciones (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT UNIQUE REFERENCES "user"(id) ON DELETE SET NULL,
+      email TEXT NOT NULL,
+      plan_codigo TEXT NOT NULL REFERENCES planes_suscripcion(codigo),
+      tipo TEXT NOT NULL CHECK (tipo IN ('mercadopago', 'manual', 'gratuita')),
+      estado TEXT NOT NULL CHECK (estado IN ('pendiente', 'prueba', 'activa', 'en_gracia', 'vencida', 'anulada')),
+      referencia_externa TEXT NOT NULL UNIQUE,
+      proveedor_id TEXT UNIQUE,
+      precio_ars INTEGER NOT NULL CHECK (precio_ars >= 0),
+      prueba_iniciada_at TIMESTAMPTZ,
+      prueba_finaliza_at TIMESTAMPTZ,
+      proximo_cobro_at TIMESTAMPTZ,
+      gracia_hasta_at TIMESTAMPTZ,
+      founder_cupo SMALLINT UNIQUE CHECK (founder_cupo BETWEEN 1 AND 10),
+      founder_pagos SMALLINT NOT NULL DEFAULT 0 CHECK (founder_pagos >= 0),
+      founder_consolidado BOOLEAN NOT NULL DEFAULT false,
+      nota TEXT NOT NULL DEFAULT '',
+      anulado_at TIMESTAMPTZ,
+      anulado_por TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+      anulado_motivo TEXT NOT NULL DEFAULT '',
+      payload_proveedor JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS eventos_suscripcion (
+      id BIGSERIAL PRIMARY KEY,
+      suscripcion_id BIGINT NOT NULL REFERENCES suscripciones(id) ON DELETE CASCADE,
+      proveedor_evento_id TEXT UNIQUE,
+      tipo TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS notificaciones_suscripcion (
+      id BIGSERIAL PRIMARY KEY,
+      suscripcion_id BIGINT NOT NULL REFERENCES suscripciones(id) ON DELETE CASCADE,
+      tipo TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      destinatario TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'enviada', 'fallida')),
+      intentos SMALLINT NOT NULL DEFAULT 0,
+      ultimo_error TEXT NOT NULL DEFAULT '',
+      enviada_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     ALTER TABLE reservas DROP CONSTRAINT IF EXISTS reservas_fecha_hora_key;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL;
@@ -188,6 +267,7 @@ async function migrate(client = pool) {
       ADD CONSTRAINT pagos_reserva_complejo_id_fkey
       FOREIGN KEY (complejo_id) REFERENCES complejos(id) ON DELETE SET NULL;
     ALTER TABLE complejos ADD COLUMN IF NOT EXISTS sena_porcentaje SMALLINT NOT NULL DEFAULT 10 CHECK (sena_porcentaje BETWEEN 1 AND 100);
+    ALTER TABLE complejos ADD COLUMN IF NOT EXISTS suspendido_suscripcion BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_user_id TEXT;
     ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_access_token TEXT;
     ALTER TABLE complejos ADD COLUMN IF NOT EXISTS mp_refresh_token TEXT;
@@ -288,12 +368,27 @@ async function migrate(client = pool) {
     CREATE INDEX IF NOT EXISTS canchas_owner_idx ON canchas (owner_user_id);
     CREATE INDEX IF NOT EXISTS canchas_complejo_idx ON canchas (complejo_id);
     CREATE INDEX IF NOT EXISTS complejos_owner_idx ON complejos (owner_user_id);
+    CREATE INDEX IF NOT EXISTS suscripciones_user_idx ON suscripciones (user_id);
+    CREATE INDEX IF NOT EXISTS suscripciones_email_idx ON suscripciones (lower(email));
+    CREATE INDEX IF NOT EXISTS suscripciones_estado_idx ON suscripciones (estado, updated_at);
+    CREATE INDEX IF NOT EXISTS eventos_suscripcion_subscription_idx ON eventos_suscripcion (suscripcion_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS notificaciones_suscripcion_pending_idx ON notificaciones_suscripcion (estado, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS bloqueos_cancha_fecha_uidx
       ON bloqueos (cancha_id, fecha) WHERE cancha_id IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS bloqueos_global_fecha_uidx
       ON bloqueos (fecha) WHERE cancha_id IS NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS invitaciones_admin_email_lower_uidx
       ON invitaciones_admin (lower(email));
+
+    INSERT INTO planes_suscripcion (codigo, nombre, precio_ars, max_complejos, max_canchas, prueba_dias)
+    VALUES
+      ('fundador', 'Fundador', 19900, 1, 6, 14),
+      ('estandar', 'Estándar', 24900, 1, 6, 14),
+      ('pro', 'Pro', 39900, 3, 20, 14)
+    ON CONFLICT (codigo) DO NOTHING;
+    INSERT INTO precios_plan_suscripcion (plan_codigo, precio_ars)
+    SELECT codigo, precio_ars FROM planes_suscripcion
+    ON CONFLICT DO NOTHING;
   `);
 }
 

@@ -137,6 +137,14 @@ async function syncConfiguredRole(user) {
       role = 'admin_cancha';
       await pool.query('UPDATE "user" SET role = $1 WHERE id = $2', [role, user.id]);
       await pool.query('UPDATE invitaciones_admin SET accepted_at = NOW() WHERE id = $1', [invite.rows[0].id]);
+      // Las invitaciones de usuarios gratuitos se crean antes de su primer acceso.
+      // Al ingresar con Google, se vinculan sin exponer ni duplicar su suscripción.
+      await pool.query(
+        `UPDATE suscripciones
+            SET user_id=$1, updated_at=NOW()
+          WHERE user_id IS NULL AND lower(email)=$2 AND estado IN ('prueba', 'activa', 'en_gracia', 'pendiente')`,
+        [user.id, email],
+      );
     }
   }
   return { ...user, role };

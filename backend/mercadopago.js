@@ -110,8 +110,60 @@ export async function searchPayments(accessToken, externalReference) {
   return mpFetch(`/v1/payments/search?${params}`, { headers: { Authorization: `Bearer ${accessToken}` } });
 }
 
-export function isValidWebhookSignature(headers, paymentId) {
-  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+function subscriptionAccessToken() {
+  const token = process.env.MERCADOPAGO_SUBSCRIPTIONS_ACCESS_TOKEN;
+  if (!token) throw new Error('MERCADOPAGO_SUBSCRIPTIONS_ACCESS_TOKEN es obligatorio para cobrar suscripciones');
+  return token;
+}
+
+export async function createSubscriptionCheckout(subscription, plan) {
+  const baseUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL;
+  if (!baseUrl) throw new Error('APP_URL es obligatorio para crear una suscripción');
+  const body = {
+    reason: `NEW MATCH · Plan ${plan.name}`,
+    external_reference: subscription.referencia_externa,
+    payer_email: subscription.email,
+    status: 'pending',
+    auto_recurring: {
+      frequency: 1,
+      frequency_type: 'months',
+      transaction_amount: subscription.precio_ars,
+      currency_id: 'ARS',
+      free_trial: { frequency: 14, frequency_type: 'days' },
+    },
+    back_url: `${baseUrl.replace(/\/$/, '')}/planes?suscripcion=${encodeURIComponent(subscription.referencia_externa)}`,
+  };
+  if (process.env.MERCADOPAGO_SUBSCRIPTIONS_WEBHOOK_URL) body.notification_url = process.env.MERCADOPAGO_SUBSCRIPTIONS_WEBHOOK_URL;
+  const data = await mpFetch('/preapproval', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${subscriptionAccessToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { providerId: data.id, checkoutUrl: data.init_point || data.sandbox_init_point, payload: data };
+}
+
+export async function getSubscription(providerId) {
+  return mpFetch(`/preapproval/${encodeURIComponent(providerId)}`, { headers: { Authorization: `Bearer ${subscriptionAccessToken()}` } });
+}
+
+export async function cancelSubscription(providerId) {
+  return mpFetch(`/preapproval/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${subscriptionAccessToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'cancelled' }),
+  });
+}
+
+export async function updateSubscriptionAmount(providerId, amount) {
+  return mpFetch(`/preapproval/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${subscriptionAccessToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auto_recurring: { transaction_amount: amount, currency_id: 'ARS', frequency: 1, frequency_type: 'months' } }),
+  });
+}
+
+export function isValidWebhookSignature(headers, paymentId, secretOverride = '') {
+  const secret = secretOverride || process.env.MERCADOPAGO_WEBHOOK_SECRET;
   if (!secret) return false;
   const signature = String(headers['x-signature'] || '');
   const requestId = String(headers['x-request-id'] || '');

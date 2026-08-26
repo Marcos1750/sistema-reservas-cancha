@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import express from 'express';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { del } from '@vercel/blob';
 import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
-import { authorizationUrl, calculateDeposit, createCheckoutPreference, decryptSecret, encryptSecret, exchangeCode, getPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchPayments, signedState } from './mercadopago.js';
+import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getPayment, getSubscription, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
+import { SUBSCRIPTION_PLANS, capabilitiesFor, isSubscriptionActive, planFor, publicSubscription } from './subscriptions.js';
 import {
   auth,
   migrateAuth,
@@ -327,6 +329,258 @@ function dateAfterWeeks(value, weeks) {
   return date.toISOString().slice(0, 10);
 }
 
+function addDays(date, days) {
+  return new Date(new Date(date).getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function subscriptionError(message = 'Tu suscripción no permite realizar esta acción') {
+  const error = new Error(message);
+  error.status = 403;
+  error.expose = true;
+  return error;
+}
+
+async function subscriptionRowForUser(userId, email, client = pool) {
+  const { rows } = await client.query(
+    `SELECT s.*, COUNT(DISTINCT co.id)::int AS complexes_used, COUNT(DISTINCT c.id)::int AS courts_used
+       FROM suscripciones s
+       LEFT JOIN complejos co ON co.owner_user_id=s.user_id
+       LEFT JOIN canchas c ON c.complejo_id=co.id
+      WHERE s.user_id=$1 OR (s.user_id IS NULL AND lower(s.email)=lower($2))
+      GROUP BY s.id
+      ORDER BY s.updated_at DESC
+      LIMIT 1`,
+    [userId, email],
+  );
+  return rows[0] || null;
+}
+
+async function subscriptionForRequest(req, client = pool) {
+  if (req.user.role === 'superadmin') return { superadmin: true, capabilities: { can_write: true, can_add_complex: true, can_add_court: true, can_receive_bookings: true } };
+  const subscription = await subscriptionRowForUser(req.user.id, req.user.email, client);
+  return { subscription, capabilities: capabilitiesFor(subscription) };
+}
+
+async function requireSubscriptionWrite(req, res, next) {
+  try {
+    const entitlement = await subscriptionForRequest(req);
+    req.subscriptionEntitlement = entitlement;
+    if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa. Podés gestionarla desde Suscripciones.', code: 'subscription_inactive' });
+    return next();
+  } catch (error) { return next(error); }
+}
+
+async function requireSubscriptionComplexCapacity(req, res, next) {
+  try {
+    const entitlement = req.subscriptionEntitlement || await subscriptionForRequest(req);
+    if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa.', code: 'subscription_inactive' });
+    if (!entitlement.capabilities.can_add_complex) return res.status(409).json({ error: `Tu plan permite hasta ${entitlement.capabilities.max_complexes} sede${entitlement.capabilities.max_complexes === 1 ? '' : 's'}. Elegí Pro o solicitá un plan a medida.`, code: 'complex_limit' });
+    req.subscriptionEntitlement = entitlement;
+    return next();
+  } catch (error) { return next(error); }
+}
+
+async function requireSubscriptionCourtCapacity(req, res, next) {
+  try {
+    const entitlement = req.subscriptionEntitlement || await subscriptionForRequest(req);
+    if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa.', code: 'subscription_inactive' });
+    if (!entitlement.capabilities.can_add_court) return res.status(409).json({ error: `Tu plan permite hasta ${entitlement.capabilities.max_canchas} canchas. Elegí Pro o solicitá un plan a medida.`, code: 'court_limit' });
+    req.subscriptionEntitlement = entitlement;
+    return next();
+  } catch (error) { return next(error); }
+}
+
+async function setComplexesSubscriptionVisibility(userId, suspended, client = pool) {
+  await client.query('UPDATE complejos SET suspendido_suscripcion=$1, updated_at=NOW() WHERE owner_user_id=$2', [suspended, userId]);
+}
+
+async function recordSubscriptionEvent(subscriptionId, type, payload = {}, providerEventId = null, client = pool) {
+  await client.query(
+    `INSERT INTO eventos_suscripcion (suscripcion_id, proveedor_evento_id, tipo, payload)
+     VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (proveedor_evento_id) DO NOTHING`,
+    [subscriptionId, providerEventId, type, JSON.stringify(payload)],
+  );
+}
+
+const EMAIL_COPY = {
+  prueba_iniciada: ['Tu prueba de NEW MATCH empezó', 'Tenés 14 días para organizar tu complejo.'],
+  prueba_7: ['Tu prueba termina en 7 días', 'Revisá tu suscripción para asegurar la continuidad del servicio.'],
+  prueba_3: ['Tu prueba termina en 3 días', 'Mercado Pago realizará el primer cobro al finalizar la prueba.'],
+  primer_pago: ['Tu suscripción está activa', 'Recibimos tu primer pago y NEW MATCH ya está activo.'],
+  renovacion_3: ['Tu renovación es en 3 días', 'Te avisamos con anticipación sobre tu próximo cobro.'],
+  cobro_fallido: ['No pudimos acreditar tu cobro', 'Tu servicio sigue activo durante 7 días mientras Mercado Pago reintenta el cobro.'],
+  gracia_3: ['Tu período de gracia termina en 3 días', 'Actualizá el medio de pago en Mercado Pago para mantener el servicio activo.'],
+  pago_recuperado: ['Tu pago fue acreditado', 'Tu suscripción vuelve a estar activa.'],
+  gracia_vencida: ['Tu suscripción venció', 'Tus complejos quedan en modo lectura hasta crear una nueva suscripción.'],
+  anulada: ['Tu suscripción fue anulada', 'El acceso comercial terminó de inmediato y no se realizaron devoluciones proporcionales.'],
+  precio_30: ['Próximo cambio de precio', 'Tu próximo precio se aplicará dentro de 30 días.'],
+  precio_7: ['Cambio de precio en 7 días', 'Tu próximo precio se aplicará en la siguiente renovación.'],
+};
+
+async function deliverSubscriptionNotification(notification) {
+  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) return false;
+  const copy = EMAIL_COPY[notification.tipo] || ['Actualización de tu suscripción', 'Hay una novedad en tu suscripción de NEW MATCH.'];
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': notification.dedupe_key },
+    body: JSON.stringify({ from: process.env.RESEND_FROM_EMAIL, to: [notification.destinatario], subject: copy[0], html: `<p>${copy[1]}</p><p><a href="${appUrl()}/planes">Gestionar suscripción</a></p>` }),
+  });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message || 'Resend no pudo enviar el aviso');
+  return true;
+}
+
+async function notifySubscription(subscription, type, suffix = '') {
+  const dedupeKey = `${subscription.id}:${type}:${suffix || new Date().toISOString().slice(0, 10)}`;
+  const inserted = await pool.query(
+    `INSERT INTO notificaciones_suscripcion (suscripcion_id, tipo, dedupe_key, destinatario)
+     VALUES ($1, $2, $3, $4) ON CONFLICT (dedupe_key) DO NOTHING RETURNING *`,
+    [subscription.id, type, dedupeKey, subscription.email],
+  );
+  const notification = inserted.rows[0];
+  if (!notification) return;
+  try {
+    if (await deliverSubscriptionNotification(notification)) {
+      await pool.query("UPDATE notificaciones_suscripcion SET estado='enviada', enviada_at=NOW(), intentos=intentos+1 WHERE id=$1", [notification.id]);
+    }
+  } catch (error) {
+    await pool.query("UPDATE notificaciones_suscripcion SET estado='fallida', ultimo_error=$1, intentos=intentos+1 WHERE id=$2", [cleanText(error.message, 500), notification.id]);
+  }
+}
+
+async function cancelLocalSubscription(subscription, actor, reason, client = pool) {
+  await client.query(
+    `UPDATE suscripciones
+        SET estado='anulada', anulado_at=NOW(), anulado_por=$1, anulado_motivo=$2, gracia_hasta_at=NULL, updated_at=NOW()
+      WHERE id=$3`,
+    [actor?.id || null, reason, subscription.id],
+  );
+  if (subscription.user_id) await setComplexesSubscriptionVisibility(subscription.user_id, true, client);
+  await recordSubscriptionEvent(subscription.id, 'anulada', { reason, actor: actor?.id || null }, null, client);
+}
+
+async function applyProviderSubscription(subscription, provider, eventType = 'provider_update', eventId = null) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const locked = await client.query('SELECT * FROM suscripciones WHERE id=$1 FOR UPDATE', [subscription.id]);
+    const current = locked.rows[0];
+    if (!current || current.estado === 'anulada') { await client.query('COMMIT'); return current; }
+    const action = String(eventType).toLowerCase();
+    const rejected = action.includes('rejected') || action.includes('failed');
+    const providerStatus = String(provider.status || '').toLowerCase();
+    const charged = Number(provider.summarized?.charged_quantity || provider.charged_quantity || 0);
+    let next = current.estado;
+    if (rejected) next = 'en_gracia';
+    else if (providerStatus === 'authorized' || providerStatus === 'active') next = !current.prueba_iniciada_at || (current.prueba_finaliza_at && new Date(current.prueba_finaliza_at) > new Date()) ? 'prueba' : 'activa';
+    else if (providerStatus === 'cancelled') next = 'anulada';
+    const firstSuccessful = next === 'activa' && !current.founder_consolidado && current.plan_codigo === 'fundador' && charged > 0;
+    const requiresFounderGraduation = current.plan_codigo === 'fundador' && charged >= 6;
+    const standardPrice = requiresFounderGraduation ? (await client.query("SELECT precio_ars FROM planes_suscripcion WHERE codigo='estandar'")).rows[0]?.precio_ars : null;
+    const trialStarted = next === 'prueba' && !current.prueba_iniciada_at ? new Date() : current.prueba_iniciada_at;
+    const trialEnds = next === 'prueba' && !current.prueba_finaliza_at ? addDays(new Date(), 14) : current.prueba_finaliza_at;
+    let founderSlot = current.founder_cupo;
+    if (next === 'prueba' && current.plan_codigo === 'fundador' && !founderSlot) {
+      await client.query('SELECT pg_advisory_xact_lock(917337)');
+      const slot = await client.query(
+        `SELECT n FROM generate_series(1, 10) AS n
+          WHERE NOT EXISTS (
+            SELECT 1 FROM suscripciones
+             WHERE plan_codigo='fundador' AND founder_cupo=n
+               AND (founder_consolidado OR estado IN ('prueba', 'activa', 'en_gracia'))
+          ) ORDER BY n LIMIT 1`,
+      );
+      if (!slot.rowCount) throw Object.assign(new Error('Los 10 cupos Fundador ya fueron utilizados'), { status: 409, expose: true });
+      founderSlot = slot.rows[0].n;
+    }
+    const graceUntil = next === 'en_gracia' ? (current.gracia_hasta_at || addDays(new Date(), 7)) : null;
+    const recovered = current.estado === 'en_gracia' && next === 'activa';
+    await client.query(
+      `UPDATE suscripciones
+          SET estado=$1, proveedor_id=COALESCE($2, proveedor_id), plan_codigo=CASE WHEN $3 THEN 'estandar' ELSE plan_codigo END,
+              precio_ars=COALESCE($4, precio_ars), prueba_iniciada_at=$5, prueba_finaliza_at=$6,
+              proximo_cobro_at=COALESCE($7, proximo_cobro_at), gracia_hasta_at=$8, founder_cupo=$9,
+              founder_pagos=GREATEST(founder_pagos, $10), founder_consolidado=founder_consolidado OR $11,
+              payload_proveedor=$12::jsonb, updated_at=NOW()
+        WHERE id=$13`,
+      [next, provider.id ? String(provider.id) : null, false, null, trialStarted, trialEnds, provider.auto_recurring?.next_payment_date || null, graceUntil, founderSlot, charged, firstSuccessful, JSON.stringify(provider), current.id],
+    );
+    if (next === 'anulada' && current.user_id) await setComplexesSubscriptionVisibility(current.user_id, true, client);
+    if (recovered && current.user_id) await setComplexesSubscriptionVisibility(current.user_id, false, client);
+    await recordSubscriptionEvent(current.id, eventType, provider, eventId, client);
+    await client.query('COMMIT');
+    let graduated = false;
+    if (requiresFounderGraduation) {
+      await updateSubscriptionAmount(current.proveedor_id || provider.id, standardPrice);
+      await pool.query("UPDATE suscripciones SET plan_codigo='estandar', precio_ars=$1, updated_at=NOW() WHERE id=$2 AND plan_codigo='fundador'", [standardPrice, current.id]);
+      graduated = true;
+    }
+    const updated = { ...current, estado: next, plan_codigo: graduated ? 'estandar' : current.plan_codigo, precio_ars: graduated ? standardPrice : current.precio_ars, prueba_iniciada_at: trialStarted, prueba_finaliza_at: trialEnds, gracia_hasta_at: graceUntil, founder_cupo: founderSlot, founder_pagos: Math.max(current.founder_pagos || 0, charged), founder_consolidado: current.founder_consolidado || firstSuccessful };
+    if (next === 'prueba' && !current.prueba_iniciada_at) await notifySubscription(updated, 'prueba_iniciada', `trial-start-${trialStarted.toISOString().slice(0, 10)}`);
+    if (next === 'en_gracia' && current.estado !== 'en_gracia') await notifySubscription(updated, 'cobro_fallido', `failure-${new Date().toISOString().slice(0, 10)}`);
+    if (recovered) await notifySubscription(updated, 'pago_recuperado', `recovered-${new Date().toISOString().slice(0, 10)}`);
+    if (firstSuccessful) await notifySubscription(updated, 'primer_pago', 'first-payment');
+    return updated;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}
+
+async function reconcileSubscriptions(limit = 50) {
+  const { rows } = await pool.query("SELECT * FROM suscripciones WHERE tipo='mercadopago' AND estado IN ('pendiente', 'prueba', 'activa', 'en_gracia') AND proveedor_id IS NOT NULL ORDER BY updated_at ASC LIMIT $1", [limit]);
+  await Promise.allSettled(rows.map(async (subscription) => applyProviderSubscription(subscription, await getSubscription(subscription.proveedor_id), 'cron_reconcile')));
+}
+
+async function runSubscriptionCron() {
+  await pool.query(
+    `UPDATE planes_suscripcion p
+        SET precio_ars=latest.precio_ars, updated_at=NOW()
+       FROM (
+         SELECT DISTINCT ON (plan_codigo) plan_codigo, precio_ars
+           FROM precios_plan_suscripcion
+          WHERE vigente_desde <= NOW()
+          ORDER BY plan_codigo, vigente_desde DESC
+       ) latest
+      WHERE p.codigo=latest.plan_codigo AND p.precio_ars <> latest.precio_ars`,
+  );
+  const priceUpdates = await pool.query("SELECT s.*, p.precio_ars AS next_price FROM suscripciones s JOIN planes_suscripcion p ON p.codigo=s.plan_codigo WHERE s.tipo='mercadopago' AND s.estado IN ('prueba','activa','en_gracia') AND s.precio_ars <> p.precio_ars AND s.proveedor_id IS NOT NULL");
+  await Promise.allSettled(priceUpdates.rows.map(async (subscription) => {
+    await updateSubscriptionAmount(subscription.proveedor_id, subscription.next_price);
+    await pool.query('UPDATE suscripciones SET precio_ars=$1, updated_at=NOW() WHERE id=$2', [subscription.next_price, subscription.id]);
+  }));
+  await reconcileSubscriptions();
+  const expired = await pool.query("SELECT * FROM suscripciones WHERE estado='en_gracia' AND gracia_hasta_at <= NOW() FOR UPDATE");
+  for (const subscription of expired.rows) {
+    await pool.query("UPDATE suscripciones SET estado='vencida', updated_at=NOW() WHERE id=$1 AND estado='en_gracia'", [subscription.id]);
+    if (subscription.user_id) await setComplexesSubscriptionVisibility(subscription.user_id, true);
+    await recordSubscriptionEvent(subscription.id, 'gracia_vencida');
+    await notifySubscription({ ...subscription, estado: 'vencida' }, 'gracia_vencida', `expired-${new Date().toISOString().slice(0, 10)}`);
+  }
+  const candidates = await pool.query("SELECT * FROM suscripciones WHERE estado IN ('prueba', 'activa', 'en_gracia')");
+  const now = Date.now();
+  for (const subscription of candidates.rows) {
+    const trialDays = subscription.prueba_finaliza_at ? Math.ceil((new Date(subscription.prueba_finaliza_at).getTime() - now) / 86_400_000) : null;
+    const graceDays = subscription.gracia_hasta_at ? Math.ceil((new Date(subscription.gracia_hasta_at).getTime() - now) / 86_400_000) : null;
+    const renewalDays = subscription.proximo_cobro_at ? Math.ceil((new Date(subscription.proximo_cobro_at).getTime() - now) / 86_400_000) : null;
+    if (trialDays === 7) await notifySubscription(subscription, 'prueba_7', `trial-${subscription.prueba_finaliza_at}`);
+    if (trialDays === 3) await notifySubscription(subscription, 'prueba_3', `trial-${subscription.prueba_finaliza_at}`);
+    if (graceDays === 3) await notifySubscription(subscription, 'gracia_3', `grace-${subscription.gracia_hasta_at}`);
+    if (renewalDays === 3) await notifySubscription(subscription, 'renovacion_3', `renewal-${subscription.proximo_cobro_at}`);
+  }
+  const scheduledPrices = await pool.query("SELECT * FROM precios_plan_suscripcion WHERE vigente_desde > NOW() AND vigente_desde <= NOW() + INTERVAL '30 days'");
+  for (const change of scheduledPrices.rows) {
+    const days = Math.ceil((new Date(change.vigente_desde).getTime() - now) / 86_400_000);
+    if (days !== 30 && days !== 7) continue;
+    const affected = await pool.query("SELECT * FROM suscripciones WHERE plan_codigo=$1 AND tipo='mercadopago' AND estado IN ('prueba','activa','en_gracia')", [change.plan_codigo]);
+    for (const subscription of affected.rows) await notifySubscription(subscription, days === 30 ? 'precio_30' : 'precio_7', `price-${change.id}`);
+  }
+  const pending = await pool.query("SELECT * FROM notificaciones_suscripcion WHERE estado IN ('pendiente', 'fallida') AND intentos < 5 ORDER BY created_at LIMIT 30");
+  for (const notification of pending.rows) {
+    try { if (await deliverSubscriptionNotification(notification)) await pool.query("UPDATE notificaciones_suscripcion SET estado='enviada', enviada_at=NOW(), intentos=intentos+1 WHERE id=$1", [notification.id]); }
+    catch (error) { await pool.query("UPDATE notificaciones_suscripcion SET estado='fallida', ultimo_error=$1, intentos=intentos+1 WHERE id=$2", [cleanText(error.message, 500), notification.id]); }
+  }
+}
+
 app.get('/api/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -381,6 +635,135 @@ app.put('/api/perfil', requireAuth(), async (req, res, next) => {
   }
 });
 
+app.get('/api/planes', async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT codigo, nombre, precio_ars, max_complejos, max_canchas, prueba_dias FROM planes_suscripcion WHERE activo=true ORDER BY CASE codigo WHEN \'fundador\' THEN 1 WHEN \'estandar\' THEN 2 ELSE 3 END');
+    const founder = await pool.query("SELECT COUNT(*)::int AS used FROM suscripciones WHERE plan_codigo='fundador' AND (founder_consolidado OR estado IN ('prueba', 'activa', 'en_gracia'))");
+    res.json(rows.map((plan) => ({ ...plan, fundador_disponible: plan.codigo !== 'fundador' || founder.rows[0].used < 10, prueba_unica: true })));
+  } catch (error) { next(error); }
+});
+
+app.get('/api/suscripcion/datos-fiscales', requireAuth(), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT razon_social, cuit, condicion_fiscal, domicilio FROM datos_fiscales_suscripcion WHERE user_id=$1', [req.user.id]);
+    res.json(rows[0] || { razon_social: '', cuit: '', condicion_fiscal: '', domicilio: '' });
+  } catch (error) { next(error); }
+});
+
+app.put('/api/suscripcion/datos-fiscales', requireAuth(), async (req, res, next) => {
+  const razonSocial = cleanText(req.body?.razon_social, 160);
+  const cuit = cleanText(req.body?.cuit, 20).replace(/\D/g, '');
+  const condicionFiscal = cleanText(req.body?.condicion_fiscal, 80);
+  const domicilio = cleanText(req.body?.domicilio, 220);
+  if (!razonSocial || !cuit || !condicionFiscal || !domicilio) return res.status(400).json({ error: 'Completá los datos fiscales antes de continuar.' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO datos_fiscales_suscripcion (user_id, razon_social, cuit, condicion_fiscal, domicilio)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id) DO UPDATE SET razon_social=EXCLUDED.razon_social, cuit=EXCLUDED.cuit, condicion_fiscal=EXCLUDED.condicion_fiscal, domicilio=EXCLUDED.domicilio, updated_at=NOW()
+       RETURNING razon_social, cuit, condicion_fiscal, domicilio`,
+      [req.user.id, razonSocial, cuit, condicionFiscal, domicilio],
+    );
+    res.json(rows[0]);
+  } catch (error) { next(error); }
+});
+
+app.get('/api/suscripcion', requireAuth(), async (req, res, next) => {
+  try {
+    const subscription = await subscriptionRowForUser(req.user.id, req.user.email);
+    res.json(publicSubscription(subscription));
+  } catch (error) { next(error); }
+});
+
+app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
+  const plan = planFor(cleanText(req.body?.plan_codigo, 20));
+  if (!plan) return res.status(400).json({ error: 'Elegí un plan válido.' });
+  try {
+    const existing = await subscriptionRowForUser(req.user.id, req.user.email);
+    if (existing && isSubscriptionActive(existing)) return res.status(409).json({ error: 'Ya tenés una suscripción activa. Usá la opción de mejora de plan.' });
+    const fiscal = await pool.query('SELECT 1 FROM datos_fiscales_suscripcion WHERE user_id=$1', [req.user.id]);
+    if (!fiscal.rowCount) return res.status(400).json({ error: 'Completá tus datos fiscales antes de iniciar la prueba.' });
+    if (existing?.prueba_iniciada_at) return res.status(409).json({ error: 'La prueba gratuita solo está disponible una vez por titular.' });
+    if (plan.founder) {
+      const cupos = await pool.query("SELECT COUNT(*)::int AS used FROM suscripciones WHERE plan_codigo='fundador' AND (founder_consolidado OR estado IN ('prueba', 'activa', 'en_gracia'))");
+      if (cupos.rows[0].used >= 10) return res.status(409).json({ error: 'Los cupos Fundador ya se agotaron. Podés elegir el plan Estándar.' });
+    }
+    const reference = `nm-sub-${crypto.randomUUID()}`;
+    const created = await pool.query(
+      `INSERT INTO suscripciones (user_id, email, plan_codigo, tipo, estado, referencia_externa, precio_ars)
+       VALUES ($1,$2,$3,'mercadopago','pendiente',$4,$5)
+       ON CONFLICT (user_id) DO UPDATE SET email=EXCLUDED.email, plan_codigo=EXCLUDED.plan_codigo, tipo='mercadopago', estado='pendiente', referencia_externa=EXCLUDED.referencia_externa, proveedor_id=NULL, precio_ars=EXCLUDED.precio_ars, gracia_hasta_at=NULL, updated_at=NOW()
+       RETURNING *`,
+      [req.user.id, req.user.email, plan.code, reference, plan.price],
+    );
+    const subscription = created.rows[0];
+    const checkout = await createSubscriptionCheckout(subscription, plan);
+    if (!checkout.checkoutUrl) throw new Error('Mercado Pago no devolvió un enlace de checkout.');
+    await pool.query('UPDATE suscripciones SET proveedor_id=$1, payload_proveedor=$2::jsonb, updated_at=NOW() WHERE id=$3', [String(checkout.providerId), JSON.stringify(checkout.payload), subscription.id]);
+    await recordSubscriptionEvent(subscription.id, 'checkout_creado', checkout.payload);
+    await pool.query("UPDATE \"user\" SET role='admin_cancha' WHERE id=$1 AND role='cliente'", [req.user.id]);
+    res.status(201).json({ checkout_url: checkout.checkoutUrl, referencia: subscription.referencia_externa });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/suscripcion/upgrade', requireAuth(), async (req, res, next) => {
+  const plan = planFor(cleanText(req.body?.plan_codigo, 20));
+  if (!plan || plan.code !== 'pro') return res.status(400).json({ error: 'En esta versión solo podés mejorar al plan Pro.' });
+  try {
+    const subscription = await subscriptionRowForUser(req.user.id, req.user.email);
+    if (!subscription || !isSubscriptionActive(subscription) || subscription.tipo === 'gratuita') return res.status(409).json({ error: 'Necesitás una suscripción paga activa para mejorar el plan.' });
+    if (subscription.plan_codigo === 'pro') return res.status(409).json({ error: 'Ya tenés el plan Pro.' });
+    if (!subscription.proveedor_id) return res.status(409).json({ error: 'La suscripción todavía no fue confirmada por Mercado Pago.' });
+    try { await updateSubscriptionAmount(subscription.proveedor_id, plan.price); }
+    catch (error) { return res.status(502).json({ error: `No pudimos actualizar la próxima renovación en Mercado Pago: ${error.message}` }); }
+    await pool.query("UPDATE suscripciones SET plan_codigo='pro', precio_ars=$1, updated_at=NOW() WHERE id=$2", [plan.price, subscription.id]);
+    await recordSubscriptionEvent(subscription.id, 'upgrade_pro', { effective_at: subscription.proximo_cobro_at || null });
+    res.json({ ok: true, mensaje: 'Pro quedó habilitado ahora. El nuevo importe se aplicará en la próxima renovación, sin prorrateo.' });
+  } catch (error) { next(error); }
+});
+
+async function handleSubscriptionCancellation(req, res, subscription, reason) {
+  if (!subscription || subscription.estado === 'anulada') return res.status(409).json({ error: 'No hay una suscripción activa para anular.' });
+  if (subscription.tipo === 'mercadopago') {
+    if (!subscription.proveedor_id) return res.status(409).json({ error: 'La suscripción todavía no fue confirmada por Mercado Pago.' });
+    try { await cancelSubscription(subscription.proveedor_id); }
+    catch (error) { return res.status(502).json({ error: `No pudimos anular la recurrencia en Mercado Pago. No se modificó tu acceso: ${error.message}` }); }
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await cancelLocalSubscription(subscription, req.user, reason, client);
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; } finally { client.release(); }
+  await notifySubscription(subscription, 'anulada', `cancelled-${subscription.id}`);
+  return res.json({ ok: true, mensaje: 'La suscripción fue anulada y el acceso terminó inmediatamente.' });
+}
+
+app.post('/api/suscripcion/anular', requireAuth(), async (req, res, next) => {
+  try {
+    const subscription = await subscriptionRowForUser(req.user.id, req.user.email);
+    return handleSubscriptionCancellation(req, res, subscription, cleanText(req.body?.motivo, 500));
+  } catch (error) { return next(error); }
+});
+
+app.post('/api/pagos/mercadopago/suscripciones/webhook', async (req, res, next) => {
+  const providerId = req.body?.data?.id || req.query['data.id'];
+  if (!providerId) return res.status(200).json({ received: true });
+  const secret = process.env.MERCADOPAGO_SUBSCRIPTIONS_WEBHOOK_SECRET || process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  if (!isValidWebhookSignature(req.headers, providerId, secret)) return res.status(401).json({ error: 'Firma de webhook inválida' });
+  try {
+    const found = await pool.query('SELECT * FROM suscripciones WHERE proveedor_id=$1', [String(providerId)]);
+    if (!found.rowCount) return res.status(200).json({ received: true });
+    const provider = await getSubscription(providerId);
+    await applyProviderSubscription(found.rows[0], provider, cleanText(req.body?.action || req.body?.type || 'webhook', 100), `${providerId}:${req.body?.action || req.body?.type || 'update'}:${req.headers['x-request-id'] || ''}`);
+    return res.status(200).json({ received: true });
+  } catch (error) { return next(error); }
+});
+
+app.get('/api/cron/suscripciones', async (req, res, next) => {
+  if (!process.env.CRON_SECRET || req.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'No autorizado' });
+  try { await runSubscriptionCron(); res.json({ ok: true }); } catch (error) { next(error); }
+});
+
 // La API pública sólo expone disponibilidad y datos comerciales.
 app.get('/api/complejos', async (_req, res, next) => {
   try {
@@ -392,7 +775,7 @@ app.get('/api/complejos', async (_req, res, next) => {
          FROM complejos co
          LEFT JOIN canchas c ON c.complejo_id = co.id AND c.activa = true
          LEFT JOIN horarios_cancha h ON h.cancha_id = c.id AND h.activo = true
-        WHERE co.activo = true
+        WHERE co.activo = true AND co.suspendido_suscripcion = false
         GROUP BY co.id
         HAVING COUNT(c.id) > 0
         ORDER BY co.nombre`,
@@ -407,7 +790,7 @@ app.get('/api/complejos/:id', async (req, res, next) => {
   try {
     const complexResult = await pool.query(
       `SELECT id, nombre, ciudad, provincia, direccion, descripcion, foto_url, owner_user_id
-         FROM complejos WHERE id = $1 AND activo = true`,
+         FROM complejos WHERE id = $1 AND activo = true AND suspendido_suscripcion = false`,
       [req.params.id],
     );
     const complex = complexResult.rows[0];
@@ -440,7 +823,7 @@ app.get('/api/canchas', async (_req, res, next) => {
          FROM canchas c
          JOIN complejos co ON co.id = c.complejo_id
          LEFT JOIN horarios_cancha h ON h.cancha_id = c.id AND h.activo = true
-        WHERE c.activa = true AND co.activo = true
+        WHERE c.activa = true AND co.activo = true AND co.suspendido_suscripcion = false
         GROUP BY c.id, co.id
         ORDER BY co.nombre, c.nombre`,
     );
@@ -469,7 +852,7 @@ app.post('/api/guardados', requireAuth(), async (req, res, next) => {
   const complejoId = Number(req.body?.complejo_id);
   if (!Number.isSafeInteger(complejoId) || complejoId < 1) return res.status(400).json({ error: 'Complejo inválido' });
   try {
-    const complex = await pool.query('SELECT id FROM complejos WHERE id = $1 AND activo = true', [complejoId]);
+    const complex = await pool.query('SELECT id FROM complejos WHERE id = $1 AND activo = true AND suspendido_suscripcion = false', [complejoId]);
     if (!complex.rowCount) return res.status(404).json({ error: 'Complejo no encontrado' });
     await pool.query(
       'INSERT INTO complejos_guardados (user_id, complejo_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -554,9 +937,9 @@ app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'superadmin'])
     await client.query('BEGIN');
     const courtResult = await client.query(
       `SELECT c.id, c.nombre, c.deporte, c.requiere_sena, co.id AS complejo_id, co.nombre AS complejo_nombre, co.owner_user_id AS complejo_owner_user_id, co.ciudad, co.provincia,
-              co.whatsapp, co.activo AS complejo_activo, co.sena_porcentaje, co.mp_access_token, co.mp_refresh_token, co.mp_token_expires_at
+              co.whatsapp, co.activo AS complejo_activo, co.suspendido_suscripcion, co.sena_porcentaje, co.mp_access_token, co.mp_refresh_token, co.mp_token_expires_at
          FROM canchas c JOIN complejos co ON co.id = c.complejo_id
-        WHERE c.id = $1 AND c.activa = true AND co.activo = true FOR SHARE`,
+        WHERE c.id = $1 AND c.activa = true AND co.activo = true AND co.suspendido_suscripcion = false FOR SHARE`,
       [reservation.canchaId],
     );
     const court = courtResult.rows[0];
@@ -765,8 +1148,71 @@ app.get('/api/pagos/:id', requireAuth(), async (req, res, next) => {
   }
 });
 
-app.get('/api/admin/session', requireAnyAdmin, (req, res) => {
-  res.json({ authenticated: true, user: req.user });
+app.get('/api/admin/session', requireAnyAdmin, async (req, res, next) => {
+  try {
+    const entitlement = await subscriptionForRequest(req);
+    res.json({ authenticated: true, user: req.user, suscripcion: publicSubscription(entitlement.subscription), capabilities: entitlement.capabilities });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/superadmin/suscripciones', requireAuth(['superadmin']), async (req, res, next) => {
+  try {
+    const state = cleanText(req.query.estado, 30);
+    const type = cleanText(req.query.tipo, 30);
+    const filters = []; const values = [];
+    if (state) { values.push(state); filters.push(`s.estado=$${values.length}`); }
+    if (type) { values.push(type); filters.push(`s.tipo=$${values.length}`); }
+    const { rows } = await pool.query(
+      `SELECT s.*, u.name AS usuario_nombre, u.email AS usuario_email,
+              COUNT(DISTINCT co.id)::int AS complexes_used, COUNT(DISTINCT c.id)::int AS courts_used
+         FROM suscripciones s
+         LEFT JOIN "user" u ON u.id=s.user_id
+         LEFT JOIN complejos co ON co.owner_user_id=s.user_id
+         LEFT JOIN canchas c ON c.complejo_id=co.id
+         ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
+        GROUP BY s.id, u.name, u.email
+        ORDER BY s.updated_at DESC
+        LIMIT 200`, values,
+    );
+    res.json(rows.map((subscription) => ({ ...publicSubscription(subscription), email: subscription.email, usuario_nombre: subscription.usuario_nombre, nota: subscription.nota, anulado_motivo: subscription.anulado_motivo })));
+  } catch (error) { next(error); }
+});
+
+app.post('/api/superadmin/suscripciones/gratuita', requireAuth(['superadmin']), async (req, res, next) => {
+  const email = cleanText(req.body?.email, 254).toLowerCase();
+  const note = cleanText(req.body?.nota, 500);
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Ingresá un email válido.' });
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const person = await client.query('SELECT id FROM "user" WHERE lower(email)=lower($1)', [email]);
+      const existing = await client.query('SELECT id, estado FROM suscripciones WHERE lower(email)=lower($1) FOR UPDATE', [email]);
+      if (existing.rowCount && existing.rows[0].estado !== 'anulada') return res.status(409).json({ error: 'Ese email ya tiene una suscripción vigente.' });
+      const reference = `nm-free-${crypto.randomUUID()}`;
+      const subscription = await client.query(
+        `INSERT INTO suscripciones (user_id, email, plan_codigo, tipo, estado, referencia_externa, precio_ars, nota)
+         VALUES ($1,$2,'estandar','gratuita','activa',$3,0,$4)
+         ON CONFLICT (user_id) DO UPDATE SET email=EXCLUDED.email, plan_codigo='estandar', tipo='gratuita', estado='activa', referencia_externa=EXCLUDED.referencia_externa, precio_ars=0, nota=EXCLUDED.nota, anulado_at=NULL, anulado_por=NULL, anulado_motivo='', updated_at=NOW()
+         RETURNING *`,
+        [person.rows[0]?.id || null, email, reference, note],
+      );
+      if (person.rowCount) await client.query("UPDATE \"user\" SET role='admin_cancha' WHERE id=$1 AND role='cliente'", [person.rows[0].id]);
+      else await client.query('INSERT INTO invitaciones_admin (email, created_by) VALUES ($1,$2) ON CONFLICT (email) DO NOTHING', [email, req.user.id]);
+      await recordSubscriptionEvent(subscription.rows[0].id, 'gratuita_creada', { pending_invitation: !person.rowCount, note }, null, client);
+      await client.query('COMMIT');
+      res.status(201).json(publicSubscription(subscription.rows[0]));
+    } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; } finally { client.release(); }
+  } catch (error) { next(error); }
+});
+
+app.post('/api/superadmin/suscripciones/:id/anular', requireAuth(['superadmin']), async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'Suscripción inválida.' });
+  try {
+    const result = await pool.query('SELECT * FROM suscripciones WHERE id=$1', [id]);
+    return handleSubscriptionCancellation(req, res, result.rows[0], cleanText(req.body?.motivo, 500));
+  } catch (error) { return next(error); }
 });
 
 app.get('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, complexAccess, (req, res) => {
@@ -777,7 +1223,7 @@ app.get('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, complexAccess, 
   });
 });
 
-app.patch('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, complexAccess, async (req, res, next) => {
+app.patch('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireSubscriptionWrite, complexAccess, async (req, res, next) => {
   const percentage = Number(req.body?.sena_porcentaje);
   if (!Number.isInteger(percentage) || percentage < 1 || percentage > 100) {
     return res.status(400).json({ error: 'El porcentaje de seña debe estar entre 1 y 100' });
@@ -793,7 +1239,7 @@ app.patch('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, complexAccess
   }
 });
 
-app.get('/api/admin/complejos/:id/mercadopago/conectar', requireAnyAdmin, complexAccess, (req, res, next) => {
+app.get('/api/admin/complejos/:id/mercadopago/conectar', requireAnyAdmin, requireSubscriptionWrite, complexAccess, (req, res, next) => {
   try {
     const state = signedState({ complexId: req.complex.id, userId: req.user.id, expiresAt: Date.now() + 10 * 60_000 });
     res.redirect(authorizationUrl(state));
@@ -802,7 +1248,7 @@ app.get('/api/admin/complejos/:id/mercadopago/conectar', requireAnyAdmin, comple
   }
 });
 
-app.delete('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, complexAccess, async (req, res, next) => {
+app.delete('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireSubscriptionWrite, complexAccess, async (req, res, next) => {
   try {
     const pending = await pool.query(
       "SELECT 1 FROM pagos_reserva WHERE complejo_id=$1 AND estado='pendiente' AND expira_at > NOW() LIMIT 1",
@@ -876,7 +1322,7 @@ app.post('/api/pagos/mercadopago/webhook', async (req, res, next) => {
   }
 });
 
-app.post('/api/admin/uploads/complejo', requireAnyAdmin, async (req, res, next) => {
+app.post('/api/admin/uploads/complejo', requireAnyAdmin, requireSubscriptionWrite, async (req, res, next) => {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return res.status(503).json({ error: 'La carga de fotos todavía no está configurada en Vercel' });
   }
@@ -933,7 +1379,7 @@ app.get('/api/admin/complejos', requireAnyAdmin, async (req, res, next) => {
   }
 });
 
-app.post('/api/admin/complejos', requireAnyAdmin, async (req, res, next) => {
+app.post('/api/admin/complejos', requireAnyAdmin, requireSubscriptionComplexCapacity, async (req, res, next) => {
   const complex = validateComplex(req.body || {});
   const court = validateCourt(req.body?.cancha || {});
   if (complex.error) return res.status(400).json(complex);
@@ -963,7 +1409,7 @@ app.post('/api/admin/complejos', requireAnyAdmin, async (req, res, next) => {
   }
 });
 
-app.patch('/api/admin/complejos/:id', requireAnyAdmin, complexAccess, async (req, res, next) => {
+app.patch('/api/admin/complejos/:id', requireAnyAdmin, requireSubscriptionWrite, complexAccess, async (req, res, next) => {
   const complex = validateComplex({ ...req.complex, ...req.body });
   if (complex.error) return res.status(400).json(complex);
   try {
@@ -988,7 +1434,7 @@ app.patch('/api/admin/complejos/:id', requireAnyAdmin, complexAccess, async (req
   }
 });
 
-app.delete('/api/admin/complejos/:id', requireAnyAdmin, complexAccess, async (req, res, next) => {
+app.delete('/api/admin/complejos/:id', requireAnyAdmin, requireSubscriptionWrite, complexAccess, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1015,7 +1461,7 @@ app.delete('/api/admin/complejos/:id', requireAnyAdmin, complexAccess, async (re
   }
 });
 
-app.post('/api/admin/complejos/:id/canchas', requireAnyAdmin, complexAccess, async (req, res, next) => {
+app.post('/api/admin/complejos/:id/canchas', requireAnyAdmin, requireSubscriptionCourtCapacity, complexAccess, async (req, res, next) => {
   const court = validateCourt(req.body || {});
   if (court.error) return res.status(400).json(court);
   try {
@@ -1047,7 +1493,7 @@ app.post('/api/admin/canchas', requireAnyAdmin, async (req, res, next) => {
   res.status(410).json({ error: 'Creá la cancha dentro de un complejo' });
 });
 
-app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, res, next) => {
+app.patch('/api/admin/canchas/:id', requireAnyAdmin, requireSubscriptionWrite, courtAccess, async (req, res, next) => {
   const court = validateCourt({ ...req.court, ...req.body });
   if (court.error) return res.status(400).json(court);
   try {
@@ -1063,7 +1509,7 @@ app.patch('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, re
   }
 });
 
-app.delete('/api/admin/canchas/:id', requireAnyAdmin, courtAccess, async (req, res, next) => {
+app.delete('/api/admin/canchas/:id', requireAnyAdmin, requireSubscriptionWrite, courtAccess, async (req, res, next) => {
   try {
     await pool.query('DELETE FROM canchas WHERE id = $1', [req.params.id]);
     res.status(204).end();
@@ -1081,7 +1527,7 @@ app.get('/api/admin/canchas/:id/horarios', requireAnyAdmin, courtAccess, async (
   }
 });
 
-app.put('/api/admin/canchas/:id/horarios', requireAnyAdmin, courtAccess, async (req, res, next) => {
+app.put('/api/admin/canchas/:id/horarios', requireAnyAdmin, requireSubscriptionWrite, courtAccess, async (req, res, next) => {
   const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
   if (slots.some((slot) => !Number.isInteger(Number(slot.dayOfWeek)) || Number(slot.dayOfWeek) < 0 || Number(slot.dayOfWeek) > 6 || !validSlot(`${slot.start}-${slot.end}`) || !Number.isFinite(Number(slot.price)) || Number(slot.price) < 0)) {
     return res.status(400).json({ error: 'Hay un día, horario o precio inválido' });
@@ -1126,7 +1572,7 @@ app.get('/api/admin/canchas/:id/excepciones', requireAnyAdmin, courtAccess, asyn
   }
 });
 
-app.post('/api/admin/canchas/:id/excepciones', requireAnyAdmin, courtAccess, async (req, res, next) => {
+app.post('/api/admin/canchas/:id/excepciones', requireAnyAdmin, requireSubscriptionWrite, courtAccess, async (req, res, next) => {
   const exception = validateException(req.body || {});
   if (exception.error) return res.status(400).json(exception);
   try {
@@ -1145,7 +1591,7 @@ app.post('/api/admin/canchas/:id/excepciones', requireAnyAdmin, courtAccess, asy
   }
 });
 
-app.delete('/api/admin/canchas/:id/excepciones/:exceptionId', requireAnyAdmin, courtAccess, async (req, res, next) => {
+app.delete('/api/admin/canchas/:id/excepciones/:exceptionId', requireAnyAdmin, requireSubscriptionWrite, courtAccess, async (req, res, next) => {
   try {
     const result = await pool.query('DELETE FROM excepciones_cancha WHERE id = $1 AND cancha_id = $2', [req.params.exceptionId, req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Excepción no encontrada' });
@@ -1184,7 +1630,7 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
   }
 });
 
-app.delete('/api/admin/reservas/:id', requireAnyAdmin, async (req, res, next) => {
+app.delete('/api/admin/reservas/:id', requireAnyAdmin, requireSubscriptionWrite, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1244,7 +1690,7 @@ app.get('/api/admin/canchas/:id/bloqueos', requireAnyAdmin, courtAccess, async (
   }
 });
 
-app.post('/api/admin/canchas/:id/bloqueos', requireAnyAdmin, courtAccess, async (req, res, next) => {
+app.post('/api/admin/canchas/:id/bloqueos', requireAnyAdmin, requireSubscriptionWrite, courtAccess, async (req, res, next) => {
   const block = validateBlock(req.body || {});
   if (block.error) return res.status(400).json(block);
   try {
@@ -1325,6 +1771,25 @@ app.delete('/api/superadmin/invitaciones/:id', requireAuth(['superadmin']), asyn
   } catch (error) {
     next(error);
   }
+});
+
+app.get('/api/superadmin/suscripciones/precios', requireAuth(['superadmin']), async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT p.codigo, p.nombre, p.precio_ars, h.vigente_desde FROM planes_suscripcion p LEFT JOIN precios_plan_suscripcion h ON h.plan_codigo=p.codigo ORDER BY p.codigo, h.vigente_desde DESC');
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/superadmin/suscripciones/precios', requireAuth(['superadmin']), async (req, res, next) => {
+  const plan = planFor(cleanText(req.body?.plan_codigo, 20));
+  const price = Number(req.body?.precio_ars);
+  const effectiveAt = cleanText(req.body?.vigente_desde, 40);
+  if (!plan || !Number.isInteger(price) || price < 0 || !effectiveAt || Number.isNaN(Date.parse(effectiveAt))) return res.status(400).json({ error: 'Plan, precio o vigencia inválidos.' });
+  try {
+    const { rows } = await pool.query('INSERT INTO precios_plan_suscripcion (plan_codigo, precio_ars, vigente_desde, creado_por) VALUES ($1,$2,$3,$4) RETURNING *', [plan.code, price, effectiveAt, req.user.id]);
+    if (new Date(effectiveAt) <= new Date()) await pool.query('UPDATE planes_suscripcion SET precio_ars=$1, updated_at=NOW() WHERE codigo=$2', [price, plan.code]);
+    res.status(201).json(rows[0]);
+  } catch (error) { next(error); }
 });
 
 app.use(express.static(FRONTEND_DIST));
