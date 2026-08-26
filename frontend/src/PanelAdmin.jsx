@@ -207,7 +207,7 @@ function SubscriptionStatus({ subscription, onCancel, busy }) {
 function SubscriptionManager({ isSuperadmin, request }) {
   const [subscription, setSubscription] = useState(null); const [items, setItems] = useState([]); const [email, setEmail] = useState(''); const [note, setNote] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   const load = useCallback(async () => { const own = await request('/api/suscripcion'); setSubscription(own); if (isSuperadmin) setItems(await request('/api/superadmin/suscripciones')); }, [isSuperadmin, request]);
-  useEffect(() => { load().catch((error) => setMessage(error.message)); }, [load]);
+  useEffect(() => { const timer = window.setTimeout(() => load().catch((error) => setMessage(error.message)), 0); return () => window.clearTimeout(timer); }, [load]);
   const cancel = async (target) => {
     const reason = window.prompt('Motivo opcional de anulación:') ?? null;
     if (reason === null || !window.confirm('El acceso termina inmediatamente, los complejos dejarán de publicarse y no habrá devolución proporcional. ¿Confirmás la anulación?')) return;
