@@ -3,6 +3,12 @@
   "buildCommand": "npm run build",
   "installCommand": "npm ci",
   "outputDirectory": "frontend/dist",
+  "crons": [
+    {
+      "path": "/api/cron/suscripciones",
+      "schedule": "0 9 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",
