@@ -568,3 +568,68 @@ body { min-width: 0; overflow-x: clip; }
   /* El resumen fijo necesita aire lateral para no quedar pegado al borde en pantallas chicas. */
   .sticky-cta { box-sizing: border-box; padding-inline: 14px; }
 }
+
+/* Escala de trabajo ampliada: se ajusta con medidas reales para conservar el responsive. */
+.admin-form { gap: 12px; padding: 20px; border-radius: 15px; }
+.admin-form input, .admin-form select, .admin-slot-row input, .admin-slot-row select { min-height: 42px; padding-inline: 12px; border-radius: 9px; font-size: 13px; }
+.admin-form label, .admin-slot-row label { gap: 8px; font-size: 12px; }
+.admin-court-card { gap: 6px; padding: 17px; border-radius: 13px; }
+.admin-court-card strong { font-size: 14px; }
+.admin-court-card small, .admin-court-card__deposit { font-size: 10px; }
+.admin-table__head, .admin-table__row { padding-inline: 20px; }
+.admin-table__row { min-height: 80px; }
+.admin-table__row strong, .admin-booking-time strong { font-size: 12px; }
+.admin-table__row small, .admin-status { font-size: 10px; }
+
+.admin-complex-create { gap: 18px; }
+.admin-complex-create__heading { padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.admin-complex-create__heading h3 { color: var(--warm); font-size: clamp(22px, 2.3vw, 28px); letter-spacing: -.05em; }
+.admin-complex-create__heading p, .admin-complex-edit__heading p, .admin-courts-panel__heading p, .admin-add-court p, .admin-court-edit p { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.admin-complex-workspace { gap: 14px; }
+.admin-complex-edit { gap: 14px; }
+.admin-complex-edit__heading { align-items: center; margin-bottom: 2px; }
+.admin-complex-edit__heading h3 { color: var(--warm); font-size: clamp(24px, 2.6vw, 31px); letter-spacing: -.055em; line-height: 1.05; }
+.admin-courts-panel { display: grid; gap: 16px; padding: 22px; border-radius: 18px; }
+.admin-courts-panel__heading h3, .admin-court-list-section > h3 { color: var(--warm); font-size: 18px; letter-spacing: -.035em; }
+.admin-add-court { margin-top: 0; gap: 14px; background: rgba(18,49,38,.48); }
+.admin-add-court > div:first-child { padding-bottom: 2px; }
+.admin-add-court > div:first-child h3 { font-size: 17px; }
+.admin-court-list-section { padding-top: 3px; }
+.admin-court-list { margin: 12px 0 0; }
+.admin-court-editor { overflow: hidden; border: 1px solid rgba(183,238,85,.38); border-radius: 18px; background: rgba(18,49,38,.34); }
+.admin-court-editor .admin-court-edit { margin: 0; padding: 22px; border: 0; border-radius: 0; background: transparent; }
+.admin-court-editor .admin-court-edit .admin-section-heading { margin-bottom: 2px; }
+.admin-court-editor .admin-court-edit h3 { color: var(--warm); font-size: clamp(22px, 2.4vw, 28px); letter-spacing: -.05em; }
+.admin-court-editor .admin-manager { margin: 0; padding: 22px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+.admin-court-editor .admin-manager .admin-section-heading h2 { font-size: 20px; }
+.admin-court-editor .quick-schedule { padding: 18px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.admin-court-editor .admin-split { gap: 22px; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.admin-court-editor .admin-split .admin-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
+
+@media (min-width: 781px) and (max-width: 1023px) {
+  .admin-sidebar { width: 262px; padding: 36px 22px 26px; }
+  .admin-nav-item { min-height: 47px; font-size: 13px; }
+  .admin-main { width: calc(100% - 262px); margin-left: 262px; padding: 54px clamp(30px, 5vw, 58px) 46px; }
+  .admin-topbar h1 { font-size: clamp(34px, 5vw, 46px); }
+  .admin-stats { gap: 14px; margin-top: 48px; margin-bottom: 56px; }
+  .admin-stat { min-height: 164px; padding: 23px; border-radius: 15px; }
+}
+
+@media (max-width: 780px) {
+  .admin-sidebar { padding: 20px; }
+  .admin-nav-item { min-height: 38px; font-size: 11px; }
+  .admin-main { padding: 34px 20px; }
+  .admin-topbar h1 { font-size: clamp(31px, 9vw, 40px); }
+  .admin-stats { gap: 14px; margin-top: 38px; margin-bottom: 48px; }
+  .admin-stat { min-height: 160px; padding: 22px; border-radius: 15px; }
+  .admin-section-heading h2 { font-size: 26px; }
+  .admin-table__row { min-height: 86px; padding-inline: 14px; }
+  .admin-courts-panel, .admin-court-editor .admin-court-edit, .admin-court-editor .admin-manager { padding: 20px; }
+}
+
+@media (max-width: 520px) {
+  .admin-main { padding: 30px 16px; }
+  .admin-form { padding: 18px; }
+  .admin-courts-panel, .admin-court-editor .admin-court-edit, .admin-court-editor .admin-manager { padding: 18px; }
+  .admin-complex-edit__heading, .admin-court-editor .admin-court-edit .admin-section-heading { align-items: stretch; flex-direction: column; }
+}
