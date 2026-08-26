@@ -463,10 +463,11 @@ body { min-width: 0; overflow-x: clip; }
   .subscription-cancel-dialog__heading { flex-direction: column; }
   .subscription-cancel-dialog__actions { display: grid; grid-template-columns: 1fr; }
   .subscription-cancel-dialog__actions button { width: 100%; }
-  .subscription-cancel-dialog__panel { gap: 14px; width: calc(100vw - 32px); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 18px; }
+  .subscription-cancel-dialog__panel { gap: 12px; width: calc(100vw - 32px); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 16px; }
   .subscription-cancel-dialog__heading { gap: 10px; }
-  .subscription-cancel-dialog__heading p { margin-top: 8px; font-size: 14px; }
-  .subscription-cancel-dialog__consequences { gap: 6px; padding: 12px 14px; font-size: 13px; }
+  .subscription-cancel-dialog__heading > button { display: none; }
+  .subscription-cancel-dialog__heading p { margin-top: 8px; font-size: 13px; }
+  .subscription-cancel-dialog__consequences { gap: 5px; padding: 10px 12px; font-size: 12px; }
   .subscription-cancel-dialog__reason { gap: 10px; }
   .subscription-cancel-dialog__label textarea { min-height: 82px; }
 }
