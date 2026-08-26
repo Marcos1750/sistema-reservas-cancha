@@ -717,7 +717,13 @@ app.post('/api/suscripcion/reconciliar', requireAuth(), async (req, res, next) =
     const subscription = await subscriptionRowForUser(req.user.id, req.user.email);
     if (!subscription || subscription.tipo !== 'mercadopago') return res.status(404).json({ error: 'No encontramos una suscripción de Mercado Pago para actualizar.' });
     if (!subscription.proveedor_id) return res.status(409).json({ error: 'La suscripción todavía no fue creada en Mercado Pago.' });
-    const provider = await getSubscription(subscription.proveedor_id);
+    if (subscription.estado !== 'pendiente') return res.json({ ok: true, estado: subscription.estado });
+    let provider;
+    try { provider = await getSubscription(subscription.proveedor_id); }
+    catch (error) {
+      if (String(error.message).includes('rate_limited')) return res.status(202).json({ ok: true, estado: subscription.estado, pendiente: true });
+      throw error;
+    }
     const eventId = `return:${subscription.proveedor_id}:${provider.date_last_updated || provider.status || 'unknown'}`;
     const updated = await applyProviderSubscription(subscription, provider, 'return_reconcile', eventId);
     return res.json({ ok: true, estado: updated?.estado || subscription.estado });

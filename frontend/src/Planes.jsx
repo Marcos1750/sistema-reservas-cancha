@@ -22,7 +22,7 @@ export default function Planes() {
       .then((result) => {
         if (!active) return;
         window.history.replaceState({}, '', '/planes');
-        setMessage(result.estado === 'prueba' ? 'Tu prueba de 14 días ya está activa.' : 'Actualizamos el estado de tu suscripción.');
+        setMessage(result.pendiente ? 'Mercado Pago está confirmando tu suscripción. Se actualizará automáticamente en unos instantes.' : result.estado === 'prueba' ? 'Tu prueba de 14 días ya está activa.' : 'Actualizamos el estado de tu suscripción.');
       })
       .catch((error) => active && setMessage(error.message));
     return () => { active = false; };
