@@ -10,10 +10,23 @@ const money = (value) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 export default function Planes() {
   const { data: session, isPending } = useSessionWithFallback();
   const userId = session?.user?.id;
+  const returnReference = new URLSearchParams(window.location.search).get('suscripcion');
   const [plans, setPlans] = useState([]); const [selected, setSelected] = useState(() => new URLSearchParams(window.location.search).get('plan') || ''); const [fiscal, setFiscal] = useState({ razon_social: '', cuit: '', condicion_fiscal: '', domicilio: '' }); const [message, setMessage] = useState(''); const [loading, setLoading] = useState(false);
   const request = async (path, options) => readApiResponse(await apiFetch(path, options));
   useEffect(() => { request('/api/planes').then(setPlans).catch((error) => setMessage(error.message)); }, []);
   useEffect(() => { if (userId) request('/api/suscripcion/datos-fiscales').then(setFiscal).catch(() => {}); }, [userId]);
+  useEffect(() => {
+    if (!userId || !returnReference) return undefined;
+    let active = true;
+    request('/api/suscripcion/reconciliar', { method: 'POST' })
+      .then((result) => {
+        if (!active) return;
+        window.history.replaceState({}, '', '/planes');
+        setMessage(result.estado === 'prueba' ? 'Tu prueba de 14 días ya está activa.' : 'Actualizamos el estado de tu suscripción.');
+      })
+      .catch((error) => active && setMessage(error.message));
+    return () => { active = false; };
+  }, [userId, returnReference]);
   const start = async (plan) => {
     if (!session?.user) return authClient.signIn.social({ provider: 'google', callbackURL: `${window.location.origin}/planes?plan=${plan.codigo}` });
     setSelected(plan.codigo); setMessage('');

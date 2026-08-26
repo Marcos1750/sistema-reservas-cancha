@@ -712,6 +712,18 @@ app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/api/suscripcion/reconciliar', requireAuth(), async (req, res, next) => {
+  try {
+    const subscription = await subscriptionRowForUser(req.user.id, req.user.email);
+    if (!subscription || subscription.tipo !== 'mercadopago') return res.status(404).json({ error: 'No encontramos una suscripción de Mercado Pago para actualizar.' });
+    if (!subscription.proveedor_id) return res.status(409).json({ error: 'La suscripción todavía no fue creada en Mercado Pago.' });
+    const provider = await getSubscription(subscription.proveedor_id);
+    const eventId = `return:${subscription.proveedor_id}:${provider.date_last_updated || provider.status || 'unknown'}`;
+    const updated = await applyProviderSubscription(subscription, provider, 'return_reconcile', eventId);
+    return res.json({ ok: true, estado: updated?.estado || subscription.estado });
+  } catch (error) { return next(error); }
+});
+
 app.post('/api/suscripcion/upgrade', requireAuth(), async (req, res, next) => {
   const plan = planFor(cleanText(req.body?.plan_codigo, 20));
   if (!plan || plan.code !== 'pro') return res.status(400).json({ error: 'En esta versión solo podés mejorar al plan Pro.' });
