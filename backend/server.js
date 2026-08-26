@@ -340,6 +340,10 @@ function subscriptionError(message = 'Tu suscripción no permite realizar esta a
   return error;
 }
 
+function subscriptionEnforcementEnabled() {
+  return process.env.SUBSCRIPTIONS_ENFORCEMENT_ENABLED === 'true';
+}
+
 async function subscriptionRowForUser(userId, email, client = pool) {
   const { rows } = await client.query(
     `SELECT s.*, COUNT(DISTINCT co.id)::int AS complexes_used, COUNT(DISTINCT c.id)::int AS courts_used
@@ -365,6 +369,7 @@ async function requireSubscriptionWrite(req, res, next) {
   try {
     const entitlement = await subscriptionForRequest(req);
     req.subscriptionEntitlement = entitlement;
+    if (!subscriptionEnforcementEnabled()) return next();
     if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa. Podés gestionarla desde Suscripciones.', code: 'subscription_inactive' });
     return next();
   } catch (error) { return next(error); }
@@ -373,6 +378,7 @@ async function requireSubscriptionWrite(req, res, next) {
 async function requireSubscriptionComplexCapacity(req, res, next) {
   try {
     const entitlement = req.subscriptionEntitlement || await subscriptionForRequest(req);
+    if (!subscriptionEnforcementEnabled()) { req.subscriptionEntitlement = entitlement; return next(); }
     if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa.', code: 'subscription_inactive' });
     if (!entitlement.capabilities.can_add_complex) return res.status(409).json({ error: `Tu plan permite hasta ${entitlement.capabilities.max_complexes} sede${entitlement.capabilities.max_complexes === 1 ? '' : 's'}. Elegí Pro o solicitá un plan a medida.`, code: 'complex_limit' });
     req.subscriptionEntitlement = entitlement;
@@ -383,6 +389,7 @@ async function requireSubscriptionComplexCapacity(req, res, next) {
 async function requireSubscriptionCourtCapacity(req, res, next) {
   try {
     const entitlement = req.subscriptionEntitlement || await subscriptionForRequest(req);
+    if (!subscriptionEnforcementEnabled()) { req.subscriptionEntitlement = entitlement; return next(); }
     if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa.', code: 'subscription_inactive' });
     if (!entitlement.capabilities.can_add_court) return res.status(409).json({ error: `Tu plan permite hasta ${entitlement.capabilities.max_canchas} canchas. Elegí Pro o solicitá un plan a medida.`, code: 'court_limit' });
     req.subscriptionEntitlement = entitlement;
