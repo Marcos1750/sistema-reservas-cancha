@@ -122,7 +122,9 @@ export async function createSubscriptionCheckout(subscription, plan) {
   const body = {
     reason: `NEW MATCH · Plan ${plan.name}`,
     external_reference: subscription.referencia_externa,
-    payer_email: subscription.email,
+    // En sandbox Mercado Pago exige que el pagador sea una cuenta de prueba.
+    // En producción no se define esta variable y se conserva el email real del titular.
+    payer_email: process.env.MERCADOPAGO_SUBSCRIPTIONS_TEST_PAYER_EMAIL || subscription.email,
     status: 'pending',
     auto_recurring: {
       frequency: 1,
