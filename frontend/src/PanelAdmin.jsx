@@ -2217,6 +2217,14 @@ export default function PanelAdmin() {
                   <span className="section-kicker">AGENDA</span>
                   <h2>Próximos turnos</h2>
                 </div>
+                <button
+                  className="inline-action admin-overview-more"
+                  type="button"
+                  onClick={() => changeAdminSection("calendar")}
+                  aria-label="Ver más próximos turnos en Calendario"
+                >
+                  Ver más <Icon name="arrow" size={15} />
+                </button>
               </div>
               <AdminTable
                 bookings={upcomingBookings.slice(0, 8)}

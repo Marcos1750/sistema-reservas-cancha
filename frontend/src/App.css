@@ -390,6 +390,7 @@ body { min-width: 0; overflow-x: clip; }
 .admin-calendar-panel { min-width: 0; margin-top: 20px; }
 .admin-calendar-load-more { display: flex; justify-content: center; margin-top: 18px; }
 .admin-calendar-load-more__button { margin-top: 0; }
+.admin-overview-more { align-self: end; white-space: nowrap; }
 .admin-status--cumplido { color: var(--muted-2); }
 .admin-status--cumplido span { background: var(--muted-2); }
 .admin-table__row.is-completed > div strong, .admin-table__row.is-completed > div small { color: var(--muted-2); }
@@ -401,6 +402,7 @@ body { min-width: 0; overflow-x: clip; }
   .admin-calendar-switch { margin-top: 18px; }
   .admin-calendar-switch__tab { min-height: 46px; padding-inline: 10px; font-size: 12px; }
   .admin-calendar-load-more__button { width: 100%; }
+  .admin-overview-more { align-self: flex-start; }
 }
 
 /* Suscripciones: mismas superficies oscuras y jerarquía operativa del panel. */
