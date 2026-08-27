@@ -253,6 +253,7 @@ async function migrate(client = pool) {
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancelled_by TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS historial_oculto_at TIMESTAMPTZ;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS recurrencia_id BIGINT REFERENCES reservas_recurrentes(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_nombre TEXT NOT NULL DEFAULT '';
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_ciudad TEXT NOT NULL DEFAULT '';
@@ -364,6 +365,7 @@ async function migrate(client = pool) {
     CREATE INDEX IF NOT EXISTS reservas_user_idx ON reservas (user_id);
     CREATE INDEX IF NOT EXISTS reservas_recurrencia_idx ON reservas (recurrencia_id);
     CREATE INDEX IF NOT EXISTS reservas_complejo_owner_idx ON reservas (complejo_owner_user_id);
+    CREATE INDEX IF NOT EXISTS reservas_historial_visible_idx ON reservas (historial_oculto_at) WHERE historial_oculto_at IS NULL;
     CREATE INDEX IF NOT EXISTS pagos_reserva_reserva_idx ON pagos_reserva (reserva_id);
     CREATE INDEX IF NOT EXISTS pagos_reserva_recurrencia_idx ON pagos_reserva (recurrencia_id);
     CREATE INDEX IF NOT EXISTS pagos_reserva_estado_idx ON pagos_reserva (estado, expira_at);

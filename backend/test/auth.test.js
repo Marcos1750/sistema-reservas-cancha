@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
+const { canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
 
 function response() {
   return {
@@ -117,6 +117,14 @@ test('el cliente puede liberar una seña pendiente sin esperar la ventana de can
   const reservation = { estado: 'pendiente_pago', fecha: '2026-08-20', hora: '16:00-17:00' };
   assert.equal(canCustomerReleaseReservation(reservation, new Date('2026-08-20T15:59:59-03:00')), true);
   assert.equal(canCustomerReleaseReservation({ ...reservation, estado: 'expirada' }, new Date('2026-08-20T12:00:00-03:00')), false);
+});
+
+test('solo permite ocultar del historial turnos finalizados o estados cerrados', () => {
+  const now = new Date('2026-08-20T18:00:00-03:00');
+  assert.equal(canHideReservationFromHistory({ estado: 'confirmada', fecha: '2026-08-20', hora: '14:00-15:00' }, now), true);
+  assert.equal(canHideReservationFromHistory({ estado: 'confirmada', fecha: '2026-08-20', hora: '18:00-19:00' }, now), false);
+  assert.equal(canHideReservationFromHistory({ estado: 'cancelada', fecha: '2026-08-20', hora: '18:00-19:00' }, now), true);
+  assert.equal(canHideReservationFromHistory({ estado: 'pendiente_pago', fecha: '2026-08-20', hora: '14:00-15:00' }, now), false);
 });
 
 test('sólo acepta enlaces HTTPS de checkout', () => {

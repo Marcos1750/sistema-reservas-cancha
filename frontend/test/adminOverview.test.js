@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getAdminOverviewMetrics, getBuenosAiresDate, getCalendarBookings } from '../src/lib/adminOverview.js';
+import { getAdminBookingSections, getAdminOverviewMetrics, getBookingEndAt, getBuenosAiresDate, getCalendarBookings, isBookingUpcoming } from '../src/lib/adminOverview.js';
 
 const now = new Date('2026-09-01T02:30:00.000Z');
 
@@ -28,13 +28,40 @@ test('resume solo el valor de reservas confirmadas del día y mes correspondient
   });
 });
 
-test('oculta del calendario los turnos que ya cumplieron una semana', () => {
+test('mantiene la compatibilidad de getCalendarBookings con un historial de 30 días', () => {
   const bookings = getCalendarBookings([
-    { id: 1, fecha: '2026-08-23' },
-    { id: 2, fecha: '2026-08-24' },
-    { id: 3, fecha: '2026-08-25' },
-    { id: 4, fecha: '2026-09-02' },
+    { id: 1, fecha: '2026-08-01', hora: '18:00-19:00', estado: 'confirmada' },
+    { id: 2, fecha: '2026-08-25', hora: '18:00-19:00', estado: 'confirmada' },
+    { id: 3, fecha: '2026-09-02', hora: '18:00-19:00', estado: 'confirmada' },
   ], now);
 
-  assert.deepEqual(bookings.map((booking) => booking.id), [3, 4]);
+  assert.deepEqual(bookings.map((booking) => booking.id), [2, 3]);
+});
+
+test('clasifica y ordena próximos e historial por fecha y final del turno', () => {
+  const at = new Date('2026-09-01T02:30:00.000Z');
+  const bookings = [
+    { id: 1, fecha: '2026-08-31', hora: '22:00-23:00', estado: 'confirmada' },
+    { id: 2, fecha: '2026-09-01', hora: '05:00-06:00', estado: 'confirmada' },
+    { id: 3, fecha: '2026-09-01', hora: '04:00-05:00', estado: 'confirmada' },
+    { id: 4, fecha: '2026-08-30', hora: '20:00-21:00', estado: 'cancelada' },
+    { id: 5, fecha: '2026-07-01', hora: '20:00-21:00', estado: 'confirmada' },
+  ];
+  const sections = getAdminBookingSections(bookings, at);
+  assert.deepEqual(sections.upcoming.map((booking) => booking.id), [3, 2]);
+  assert.deepEqual(sections.history.map((booking) => booking.id), [1, 4]);
+  assert.equal(isBookingUpcoming(bookings[1], at), true);
+  assert.equal(isBookingUpcoming(bookings[0], at), false);
+  assert.equal(getBookingEndAt(bookings[0]).toISOString(), '2026-09-01T02:00:00.000Z');
+  assert.equal(isBookingUpcoming(bookings[0], new Date('2026-09-01T02:00:00.000Z')), false);
+});
+
+test('no muestra en la agenda las reservas ocultas del historial', () => {
+  const sections = getAdminBookingSections([
+    { id: 1, fecha: '2026-08-31', hora: '18:00-19:00', estado: 'cancelada', historial_oculto_at: '2026-09-01T00:00:00Z' },
+    { id: 2, fecha: '2026-08-31', hora: '19:00-20:00', estado: 'cancelada' },
+  ], now);
+
+  assert.deepEqual(sections.history.map((booking) => booking.id), [2]);
+  assert.deepEqual(sections.all.map((booking) => booking.id), [2]);
 });

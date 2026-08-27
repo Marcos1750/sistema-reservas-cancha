@@ -70,6 +70,13 @@ function reservationStartAt(fecha, hora) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function reservationEndAt(fecha, hora) {
+  const slot = parseSlot(hora);
+  if (!slot) return null;
+  const date = new Date(`${fecha}T${slot.end}:00-03:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function validateReservation(body, now = new Date()) {
   const nombre = cleanText(body.nombre, 120);
   const telefono = cleanText(body.telefono, 15).replace(/\D/g, '');
@@ -190,6 +197,13 @@ function canCustomerCancel(reservation, now = new Date()) {
 
 function canCustomerReleaseReservation(reservation, now = new Date()) {
   return reservation.estado === 'pendiente_pago' || canCustomerCancel(reservation, now);
+}
+
+function canHideReservationFromHistory(reservation, now = new Date()) {
+  if (['cancelada', 'expirada'].includes(reservation?.estado)) return true;
+  if (reservation?.estado !== 'confirmada') return false;
+  const endAt = reservationEndAt(reservation.fecha, reservation.hora);
+  return Boolean(endAt && endAt.getTime() <= now.getTime());
 }
 
 function paymentSetupError(message) {
@@ -1767,7 +1781,7 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
     }
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars, r.recurrencia_id,
-              r.estado, r.created_at, COALESCE(c.nombre, r.cancha_nombre, 'Cancha eliminada') AS cancha,
+              r.estado, r.created_at, r.historial_oculto_at, COALESCE(c.nombre, r.cancha_nombre, 'Cancha eliminada') AS cancha,
               COALESCE(co.nombre, r.complejo_nombre, '') AS complejo,
               COALESCE(co.ciudad, r.complejo_ciudad, r.cancha_ciudad, '') AS ciudad,
               COALESCE(co.provincia, r.complejo_provincia, r.cancha_provincia, '') AS provincia,
@@ -1781,6 +1795,41 @@ app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
     res.json(rows);
   } catch (error) {
     next(error);
+  }
+});
+
+app.post('/api/admin/reservas/:id/ocultar-historial', requireAnyAdmin, requireSubscriptionWrite, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const params = [req.params.id];
+    const accessFilter = req.user.role === 'superadmin' ? '' : ' AND COALESCE(co.owner_user_id, r.complejo_owner_user_id) = $2';
+    if (req.user.role !== 'superadmin') params.push(req.user.id);
+    const reservationResult = await client.query(
+      `SELECT r.id, r.estado, r.fecha::text, r.hora
+         FROM reservas r
+         LEFT JOIN canchas c ON c.id = r.cancha_id
+         LEFT JOIN complejos co ON co.id = c.complejo_id
+        WHERE r.id = $1${accessFilter} AND r.historial_oculto_at IS NULL FOR UPDATE OF r`,
+      params,
+    );
+    const reservation = reservationResult.rows[0];
+    if (!reservation) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'La reserva no existe o no tenés permiso para administrarla' });
+    }
+    if (!canHideReservationFromHistory(reservation)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Solo se pueden quitar del historial los turnos ya finalizados' });
+    }
+    await client.query('UPDATE reservas SET historial_oculto_at = NOW() WHERE id = $1', [reservation.id]);
+    await client.query('COMMIT');
+    res.json({ id: reservation.id, oculto: true });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
   }
 });
 
@@ -2007,4 +2056,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };
+export { app, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };

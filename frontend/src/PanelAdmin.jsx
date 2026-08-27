@@ -7,8 +7,9 @@ import { Icon, PitchMark } from "./icons";
 import { authClient } from "./authClient";
 import { apiFetch, readApiResponse } from "./api";
 import {
+  getAdminBookingSections,
   getAdminOverviewMetrics,
-  getCalendarBookings,
+  isBookingUpcoming,
 } from "./lib/adminOverview";
 import { getComplexTheme, getSportTheme } from "./sportTheme";
 import { useSessionWithFallback } from "./useSessionWithFallback";
@@ -95,13 +96,13 @@ function GoogleAccess({ onLogin, message }) {
   );
 }
 
-function AdminTable({ bookings, onCancel }) {
+function AdminTable({ bookings, onCancel, onHideHistory, mode = "upcoming", now = new Date(), emptyTitle, emptyDescription }) {
   if (!bookings.length)
     return (
       <div className="admin-empty">
         <PitchMark compact />
-        <h3>No hay turnos para mostrar</h3>
-        <p>Las próximas reservas van a aparecer acá.</p>
+        <h3>{emptyTitle || (mode === "history" ? "No hay historial reciente" : "No hay próximos turnos")}</h3>
+        <p>{emptyDescription || (mode === "history" ? "Los turnos finalizados de los últimos 30 días van a aparecer acá." : "Las próximas reservas van a aparecer acá.")}</p>
       </div>
     );
   const labels = {
@@ -109,6 +110,7 @@ function AdminTable({ bookings, onCancel }) {
     pendiente_pago: "Pendiente de pago",
     cancelada: "Cancelada",
     expirada: "Vencida",
+    cumplido: "Cumplido",
   };
   return (
     <div className="admin-table">
@@ -121,12 +123,17 @@ function AdminTable({ bookings, onCancel }) {
       </div>
       {bookings.map((booking) => {
         const cancellable =
-          booking.estado === "confirmada" ||
-          booking.estado === "pendiente_pago";
-        const statusClass =
-          booking.estado === "confirmada" ? "confirmado" : booking.estado;
+          mode === "upcoming" &&
+          (booking.estado === "confirmada" || booking.estado === "pendiente_pago");
+        const completed = mode === "history" && booking.estado === "confirmada" && !isBookingUpcoming(booking, now);
+        const displayStatus = completed ? "cumplido" : booking.estado;
+        const canHide = mode === "history" && onHideHistory && (
+          booking.estado === "cancelada" ||
+          booking.estado === "expirada" ||
+          (booking.estado === "confirmada" && !isBookingUpcoming(booking, now))
+        );
         return (
-          <div className="admin-table__row" key={booking.id}>
+          <div className={`admin-table__row${completed ? " is-completed" : ""}`} key={booking.id}>
             <div className="admin-booking-time">
               <strong>{booking.hora}</strong>
               <small>
@@ -146,11 +153,20 @@ function AdminTable({ bookings, onCancel }) {
                   : "Sin precio"}
               </small>
             </div>
-            <span className={`admin-status admin-status--${statusClass}`}>
+            <span className={`admin-status admin-status--${displayStatus}`}>
               <span />
-              {labels[booking.estado] || booking.estado}
+              {labels[displayStatus] || booking.estado}
             </span>
-            {cancellable && (
+            {canHide ? (
+              <button
+                className="admin-delete admin-history-remove"
+                type="button"
+                onClick={() => onHideHistory(booking.id)}
+                aria-label={`Quitar del historial el turno de ${booking.nombre}`}
+              >
+                <Icon name="plus" size={17} />
+              </button>
+            ) : cancellable && (
               <button
                 className="admin-delete"
                 type="button"
@@ -1934,6 +1950,7 @@ export default function PanelAdmin() {
   const [complexes, setComplexes] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [filterDate, setFilterDate] = useState("");
+  const [agendaNow, setAgendaNow] = useState(() => new Date());
   const [activeSection, setActiveSection] = useState("overview");
   const [error, setError] = useState("");
   const [profileAttempt, setProfileAttempt] = useState(0);
@@ -1989,10 +2006,17 @@ export default function PanelAdmin() {
     );
     return () => window.clearTimeout(timer);
   }, [profile, reload]);
-  const calendarBookings = getCalendarBookings(bookings);
-  const filtered = filterDate
-    ? calendarBookings.filter((booking) => booking.fecha === filterDate)
-    : calendarBookings;
+  useEffect(() => {
+    const timer = window.setInterval(() => setAgendaNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const bookingSections = getAdminBookingSections(bookings, agendaNow);
+  const upcomingBookings = filterDate
+    ? bookingSections.upcoming.filter((booking) => booking.fecha === filterDate)
+    : bookingSections.upcoming;
+  const historyBookings = filterDate
+    ? bookingSections.history.filter((booking) => booking.fecha === filterDate)
+    : bookingSections.history;
   const login = () =>
     authClient.signIn.social({
       provider: "google",
@@ -2016,6 +2040,17 @@ export default function PanelAdmin() {
     } catch (requestError) {
       setError(requestError.message);
       window.alert(`No se pudo cancelar la reserva: ${requestError.message}`);
+    }
+  };
+  const hideHistoryBooking = async (id) => {
+    if (!window.confirm("¿Quitar este turno del historial? La reserva y sus pagos se conservarán.")) return;
+    setError("");
+    try {
+      await request(`/api/admin/reservas/${id}/ocultar-historial`, { method: "POST" });
+      await reload();
+    } catch (requestError) {
+      setError(requestError.message);
+      window.alert(`No se pudo quitar del historial: ${requestError.message}`);
     }
   };
   if (isPending || (session?.user && profile === null))
@@ -2169,8 +2204,9 @@ export default function PanelAdmin() {
                 </div>
               </div>
               <AdminTable
-                bookings={bookings.slice(0, 8)}
+                bookings={upcomingBookings.slice(0, 8)}
                 onCancel={cancelBooking}
+                now={agendaNow}
               />
             </section>
           </>
@@ -2198,15 +2234,16 @@ export default function PanelAdmin() {
                 </Button>
               </div>
             </div>
-            {filtered.length ? (
-              <AdminTable bookings={filtered} onCancel={cancelBooking} />
-            ) : (
-              <div className="admin-empty">
-                <PitchMark compact />
-                <h3>No hay turnos para esta fecha</h3>
-                <p>Probá con otro día o mostrálos todos.</p>
-              </div>
-            )}
+            <div className="admin-calendar-sections">
+              <section className="admin-calendar-section">
+                <div className="admin-calendar-section__heading"><div><span className="section-kicker">AGENDA ACTIVA</span><h3>Próximos</h3></div><span>{upcomingBookings.length} {upcomingBookings.length === 1 ? "turno" : "turnos"}</span></div>
+                <AdminTable bookings={upcomingBookings} onCancel={cancelBooking} now={agendaNow} emptyTitle={filterDate ? "No hay próximos turnos para esta fecha" : undefined} emptyDescription={filterDate ? "Probá con otra fecha o mostrálos todos." : undefined} />
+              </section>
+              <section className="admin-calendar-section admin-calendar-section--history">
+                <div className="admin-calendar-section__heading"><div><span className="section-kicker">REGISTRO RECIENTE</span><h3>Historial</h3></div><span>{historyBookings.length} {historyBookings.length === 1 ? "turno" : "turnos"}</span></div>
+                <AdminTable bookings={historyBookings} onHideHistory={hideHistoryBooking} mode="history" now={agendaNow} />
+              </section>
+            </div>
           </section>
         )}
         {activeSection === "complexes" && (

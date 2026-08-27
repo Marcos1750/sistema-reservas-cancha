@@ -1,4 +1,5 @@
 export const BUENOS_AIRES_TIME_ZONE = 'America/Argentina/Buenos_Aires';
+export const ADMIN_HISTORY_DAYS = 30;
 
 export function getBuenosAiresDate(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -32,9 +33,43 @@ export function getAdminOverviewMetrics(bookings, now = new Date()) {
 }
 
 export function getCalendarBookings(bookings, now = new Date()) {
-  const cutoff = new Date(`${getBuenosAiresDate(now)}T12:00:00Z`);
-  cutoff.setUTCDate(cutoff.getUTCDate() - 7);
-  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  return getAdminBookingSections(bookings, now).all;
+}
 
-  return bookings.filter((booking) => booking.fecha > cutoffDate);
+function parseBookingTime(booking, end = false) {
+  const [start, finish] = String(booking?.hora || '').split('-');
+  const value = end ? finish : start;
+  if (!/^\d{2}:\d{2}$/.test(value) || !/^\d{4}-\d{2}-\d{2}$/.test(booking?.fecha || '')) return null;
+  const result = new Date(`${booking.fecha}T${value}:00-03:00`);
+  return Number.isNaN(result.getTime()) ? null : result;
+}
+
+export function getBookingEndAt(booking) {
+  return parseBookingTime(booking, true) || parseBookingTime(booking);
+}
+
+export function isBookingUpcoming(booking, now = new Date()) {
+  if (!['confirmada', 'pendiente_pago'].includes(booking?.estado)) return false;
+  const endAt = getBookingEndAt(booking);
+  return Boolean(endAt && endAt.getTime() > now.getTime());
+}
+
+function historyCutoffDate(now) {
+  const cutoff = new Date(`${getBuenosAiresDate(now)}T12:00:00Z`);
+  cutoff.setUTCDate(cutoff.getUTCDate() - ADMIN_HISTORY_DAYS);
+  return cutoff.toISOString().slice(0, 10);
+}
+
+function compareBookings(left, right, direction) {
+  const leftKey = `${left.fecha || ''}T${left.hora || ''}`;
+  const rightKey = `${right.fecha || ''}T${right.hora || ''}`;
+  return direction * (leftKey.localeCompare(rightKey) || Number(left.id || 0) - Number(right.id || 0));
+}
+
+export function getAdminBookingSections(bookings, now = new Date()) {
+  const cutoffDate = historyCutoffDate(now);
+  const visibleBookings = bookings.filter((booking) => !booking.historial_oculto_at);
+  const upcoming = visibleBookings.filter((booking) => isBookingUpcoming(booking, now)).sort((a, b) => compareBookings(a, b, 1));
+  const history = visibleBookings.filter((booking) => !isBookingUpcoming(booking, now) && booking.fecha > cutoffDate).sort((a, b) => compareBookings(a, b, -1));
+  return { upcoming, history, all: [...history, ...upcoming] };
 }
