@@ -45,7 +45,9 @@ function normalizeWhatsApp(value) {
 }
 
 function validDate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function validSlot(value) {
@@ -61,7 +63,14 @@ function parseSlot(value) {
   return { start, end };
 }
 
-function validateReservation(body) {
+function reservationStartAt(fecha, hora) {
+  const slot = parseSlot(hora);
+  if (!slot) return null;
+  const date = new Date(`${fecha}T${slot.start}:00-03:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function validateReservation(body, now = new Date()) {
   const nombre = cleanText(body.nombre, 120);
   const telefono = cleanText(body.telefono, 15).replace(/\D/g, '');
   const fecha = cleanText(body.fecha, 10);
@@ -73,7 +82,36 @@ function validateReservation(body) {
     return { error: 'Nombre, teléfono, fecha u horario inválido' };
   }
   if (!Number.isInteger(semanas) || (recurrente && (semanas < 2 || semanas > 52))) return { error: 'La cantidad de semanas es inválida' };
+  const startAt = reservationStartAt(fecha, hora);
+  if (!startAt || startAt.getTime() <= now.getTime()) return { error: 'El horario seleccionado ya comenzó. Elegí uno futuro.' };
   return { nombre, telefono, fecha, hora, canchaId, recurrente, semanas };
+}
+
+function validateScheduleSlots(slots) {
+  if (!Array.isArray(slots)) return { error: 'Hay un día, horario o precio inválido' };
+  const byDay = new Map();
+  for (const slot of slots) {
+    const dayOfWeek = Number(slot?.dayOfWeek);
+    const parsed = parseSlot(`${slot?.start}-${slot?.end}`);
+    const price = Number(slot?.price);
+    if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6 || !parsed || !Number.isFinite(price) || price < 0) {
+      return { error: 'Hay un día, horario o precio inválido' };
+    }
+    const startMinutes = Number(parsed.start.slice(0, 2)) * 60 + Number(parsed.start.slice(3, 5));
+    const endMinutes = Number(parsed.end.slice(0, 2)) * 60 + Number(parsed.end.slice(3, 5));
+    const daySlots = byDay.get(dayOfWeek) || [];
+    daySlots.push({ startMinutes, endMinutes });
+    byDay.set(dayOfWeek, daySlots);
+  }
+  for (const daySlots of byDay.values()) {
+    daySlots.sort((left, right) => left.startMinutes - right.startMinutes || left.endMinutes - right.endMinutes);
+    for (let index = 1; index < daySlots.length; index += 1) {
+      if (daySlots[index].startMinutes < daySlots[index - 1].endMinutes) {
+        return { error: 'Los horarios de un mismo día no pueden superponerse' };
+      }
+    }
+  }
+  return null;
 }
 
 function validateComplex(body) {
@@ -1646,9 +1684,8 @@ app.get('/api/admin/canchas/:id/horarios', requireAnyAdmin, courtAccess, async (
 
 app.put('/api/admin/canchas/:id/horarios', requireAnyAdmin, requireSubscriptionWrite, courtAccess, requireWritableComplex, async (req, res, next) => {
   const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
-  if (slots.some((slot) => !Number.isInteger(Number(slot.dayOfWeek)) || Number(slot.dayOfWeek) < 0 || Number(slot.dayOfWeek) > 6 || !validSlot(`${slot.start}-${slot.end}`) || !Number.isFinite(Number(slot.price)) || Number(slot.price) < 0)) {
-    return res.status(400).json({ error: 'Hay un día, horario o precio inválido' });
-  }
+  const scheduleError = validateScheduleSlots(slots);
+  if (scheduleError) return res.status(400).json(scheduleError);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1822,6 +1859,18 @@ app.post('/api/admin/canchas/:id/bloqueos', requireAnyAdmin, requireSubscription
   }
 });
 
+app.delete('/api/admin/canchas/:id/bloqueos/:blockId', requireAnyAdmin, requireSubscriptionWrite, courtAccess, requireWritableComplex, async (req, res, next) => {
+  const blockId = Number(req.params.blockId);
+  if (!Number.isSafeInteger(blockId) || blockId < 1) return res.status(400).json({ error: 'Bloqueo inválido' });
+  try {
+    const result = await pool.query('DELETE FROM bloqueos WHERE id = $1 AND cancha_id = $2', [blockId, req.court.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Bloqueo no encontrado' });
+    return res.status(204).end();
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.get('/api/superadmin/admins', requireAuth(['superadmin']), async (_req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -1958,4 +2007,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation };
+export { app, canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };

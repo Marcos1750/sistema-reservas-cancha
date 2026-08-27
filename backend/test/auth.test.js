@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation } = await import('../server.js');
+const { canCustomerCancel, canCustomerReleaseReservation, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
 
 function response() {
   return {
@@ -51,9 +51,10 @@ test('requireAuth deja pasar al administrador de cancha', async () => {
 });
 
 test('una reserva nueva exige una cancha concreta', () => {
-  assert.equal(validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00' }).error, 'Nombre, teléfono, fecha u horario inválido');
+  const now = new Date('2026-08-19T12:00:00-03:00');
+  assert.equal(validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00' }, now).error, 'Nombre, teléfono, fecha u horario inválido');
   assert.deepEqual(
-    validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', cancha_id: 7 }),
+    validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', cancha_id: 7 }, now),
     { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', canchaId: 7, recurrente: false, semanas: 1 },
   );
 });
@@ -67,12 +68,42 @@ test('sólo el propietario reserva su propia cancha sin seña', () => {
 });
 
 test('un horario fijo valida la cantidad de semanas', () => {
+  const now = new Date('2026-08-19T12:00:00-03:00');
   const base = { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', cancha_id: 7, recurrente: true };
-  assert.equal(validateReservation({ ...base, semanas: 1 }).error, 'La cantidad de semanas es inválida');
-  assert.equal(validateReservation({ ...base, semanas: 53 }).error, 'La cantidad de semanas es inválida');
-  assert.deepEqual(validateReservation({ ...base, semanas: 4 }), {
+  assert.equal(validateReservation({ ...base, semanas: 1 }, now).error, 'La cantidad de semanas es inválida');
+  assert.equal(validateReservation({ ...base, semanas: 53 }, now).error, 'La cantidad de semanas es inválida');
+  assert.deepEqual(validateReservation({ ...base, semanas: 4 }, now), {
     nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '18:00-19:00', canchaId: 7, recurrente: true, semanas: 4,
   });
+});
+
+test('rechaza reservas cuyo horario ya comenzó', () => {
+  const now = new Date('2026-08-20T18:00:00-03:00');
+  const base = { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', cancha_id: 7 };
+  assert.equal(validateReservation({ ...base, hora: '17:00-18:00' }, now).error, 'El horario seleccionado ya comenzó. Elegí uno futuro.');
+  assert.equal(validateReservation({ ...base, hora: '18:00-19:00' }, now).error, 'El horario seleccionado ya comenzó. Elegí uno futuro.');
+  assert.equal(validateReservation({ ...base, hora: '18:30-19:30' }, now).error, undefined);
+});
+
+test('rechaza fechas inexistentes antes de crear una reserva', () => {
+  const reservation = validateReservation(
+    { nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-02-30', hora: '18:00-19:00', cancha_id: 7 },
+    new Date('2026-02-01T12:00:00-03:00'),
+  );
+  assert.equal(reservation.error, 'Nombre, teléfono, fecha u horario inválido');
+});
+
+test('rechaza horarios superpuestos sin confundir turnos contiguos', () => {
+  const valid = [
+    { dayOfWeek: 1, start: '19:00', end: '20:00', price: 10000 },
+    { dayOfWeek: 1, start: '18:00', end: '19:00', price: 10000, active: false },
+    { dayOfWeek: 2, start: '18:00', end: '20:00', price: 10000 },
+  ];
+  assert.equal(validateScheduleSlots(valid), null);
+  assert.deepEqual(
+    validateScheduleSlots([...valid, { dayOfWeek: 1, start: '18:30', end: '19:30', price: 10000 }]),
+    { error: 'Los horarios de un mismo día no pueden superponerse' },
+  );
 });
 
 test('el cliente puede cancelar hasta dos horas antes del turno', () => {

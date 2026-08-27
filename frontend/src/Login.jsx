@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Icon, PitchMark } from './icons';
 import { CalendarPicker } from './CalendarPicker';
 import { getAvailabilityStatus } from './lib/availability';
+import { splitBookingsByTimeline } from './lib/bookings';
 import { formatARS } from './mockData';
 import { authClient } from './authClient';
 import { apiFetch, readApiResponse } from './api';
@@ -110,7 +111,7 @@ function BottomNav({ current, onChange }) {
     };
   }, []);
 
-  return <nav className={`bottom-nav${isVisible ? '' : ' bottom-nav--hidden'}`} aria-label="Navegación principal" aria-hidden={!isVisible} onFocusCapture={() => setIsVisible(true)}>{items.map(([id, label, icon]) => <button className={`bottom-nav__item${current === id ? ' is-active' : ''}`} key={id} type="button" onClick={() => onChange(id)}><Icon name={icon} size={19} strokeWidth={current === id ? 2.2 : 1.6} /><span>{label}</span></button>)}</nav>;
+  return <nav className={`bottom-nav${isVisible ? '' : ' bottom-nav--hidden'}`} aria-label="Navegación principal" aria-hidden={!isVisible} onFocusCapture={() => setIsVisible(true)}>{items.map(([id, label, icon]) => <button className={`bottom-nav__item${current === id ? ' is-active' : ''}`} key={id} type="button" onClick={() => { window.scrollTo({ top: 0, behavior: 'auto' }); onChange(id); }}><Icon name={icon} size={19} strokeWidth={current === id ? 2.2 : 1.6} /><span>{label}</span></button>)}</nav>;
 }
 
 function PublicSidebar({ current, onChange, session, canManage }) {
@@ -131,7 +132,7 @@ function PublicSidebar({ current, onChange, session, canManage }) {
 }
 
 function PublicLayout({ current, onChange, session, canManage, showMobileNav = false, children }) {
-  return <div className={`public-layout${showMobileNav ? ' public-layout--with-mobile-nav' : ''}`}><PublicSidebar current={current} onChange={onChange} session={session} canManage={canManage} /><div className="public-layout__stage">{children}</div>{showMobileNav && <BottomNav current={current} onChange={onChange} />}</div>;
+  return <div className={`public-layout${showMobileNav ? ' public-layout--with-mobile-nav' : ''}`}><PublicSidebar current={current} onChange={onChange} session={session} canManage={canManage} /><div className="public-layout__stage">{children}</div>{showMobileNav && <BottomNav key={current} current={current} onChange={onChange} />}</div>;
 }
 
 function DateRail({ selected, onSelect }) {
@@ -193,12 +194,36 @@ function PaymentScreen({ payment, onCancel }) {
 }
 
 function BookingsScreen({ bookings, onChange, session, onLogin, onCancel, error, notice }) {
-  return <div className="app-shell"><header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header><main className="main-content"><section className="page-heading"><span className="section-kicker">TU HISTORIAL</span><h1>Mis turnos</h1><p>Cancelá desde acá hasta 2 horas antes del turno.</p></section>{session ? <>{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="booking-list">{bookings.map((booking) => {
-    const cancelled = booking.status === 'Cancelado' || booking.status === 'Vencido';
-    const pendingPayment = booking.status === 'Pendiente de pago';
-    const whatsappUrl = booking.whatsapp ? `https://wa.me/${booking.whatsapp}?text=${encodeURIComponent(`Hola, necesito gestionar mi reserva en ${booking.complex} del ${booking.date} a las ${booking.time}.`)}` : '';
-    return <article className={`booking-card${cancelled ? ' is-cancelled' : ''}${pendingPayment ? ' is-pending-payment' : ''}`} key={booking.id}><div className="booking-card__date"><strong>{formatBookingDay(booking.date)}</strong><span>{new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(new Date(`${booking.date}T12:00:00`)).toUpperCase()}</span></div><div className="booking-card__content"><div><h3>{booking.complex || 'Complejo'}</h3><p>{booking.court} · {booking.date} · {booking.time}</p></div><span className={`status-pill${cancelled ? ' is-cancelled' : pendingPayment ? ' is-pending' : ''}`}><span /> {booking.status || 'Confirmado'}{booking.recurrenceId ? ' · Fijo' : ''}</span><div className="booking-card__meta"><span>{booking.sport || 'Turno'}</span><strong>{booking.price ? formatARS(booking.price) : '—'}</strong></div>{booking.deposit ? <div className="booking-payment"><span>Seña: <strong>{formatARS(booking.deposit)}</strong>{booking.balance !== null ? ` · Saldo en el complejo: ${formatARS(booking.balance)}` : ''}</span>{!pendingPayment && <small>Las señas confirmadas no se reintegran automáticamente.</small>}</div> : null}{!cancelled && <div className="booking-card__actions">{pendingPayment ? <>{booking.paymentUrl && <a className="booking-card__pay" href={booking.paymentUrl}>Pagar seña <Icon name="arrow" size={14} /></a>}<Button variant="secondary" size="sm" type="button" onClick={() => onCancel(booking)}>Cancelar solicitud</Button></> : booking.canCancel ? <Button variant="secondary" size="sm" type="button" onClick={() => onCancel(booking)}>Cancelar reserva</Button> : whatsappUrl ? <a className="booking-card__whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer">Gestionar por WhatsApp <Icon name="arrow" size={14} /></a> : <small>Para cancelar, contactá al complejo.</small>}</div>}</div></article>;
-  })}</div>{!bookings.length && <div className="empty-state"><PitchMark compact /><h3>Todavía no hay turnos</h3><p>Cuando reserves una cancha, aparece acá.</p></div>}</> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus próximos partidos</h3><p>Ingresá con Google para consultar tu historial y reservar.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}</main></div>;
+  const [activeTab, setActiveTab] = useState('upcoming');
+  const { upcoming, history } = splitBookingsByTimeline(bookings);
+  const visibleBookings = activeTab === 'upcoming' ? upcoming : history;
+  const emptyCopy = activeTab === 'upcoming'
+    ? { title: 'Todavía no tenés próximos turnos', description: 'Cuando reserves una cancha, aparece acá.', action: 'Explorar complejos' }
+    : { title: 'Todavía no hay turnos en tu historial', description: 'Acá vas a encontrar tus reservas anteriores.' };
+
+  return <div className="app-shell">
+    <header className="app-header"><Brand onClick={() => onChange('explore')} /><button className="avatar-button" type="button" onClick={() => onChange('profile')}>{session?.user?.name?.slice(0, 2).toUpperCase() || 'GO'}</button></header>
+    <main className="main-content">
+      <section className="page-heading"><span className="section-kicker">TUS RESERVAS</span><h1>Mis turnos</h1><p>Tu próximo partido siempre aparece primero.</p></section>
+      {session ? <>
+        {notice && <p className="form-success" role="status">{notice}</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="booking-tabs" role="tablist" aria-label="Filtrar turnos">
+          <button className={`booking-tab${activeTab === 'upcoming' ? ' is-active' : ''}`} id="upcoming-bookings-tab" type="button" role="tab" aria-selected={activeTab === 'upcoming'} aria-controls="bookings-panel" onClick={() => setActiveTab('upcoming')}>Próximos <span>{upcoming.length}</span></button>
+          <button className={`booking-tab${activeTab === 'history' ? ' is-active' : ''}`} id="booking-history-tab" type="button" role="tab" aria-selected={activeTab === 'history'} aria-controls="bookings-panel" onClick={() => setActiveTab('history')}>Historial <span>{history.length}</span></button>
+        </div>
+        <div className="booking-list" id="bookings-panel" role="tabpanel" aria-labelledby={activeTab === 'upcoming' ? 'upcoming-bookings-tab' : 'booking-history-tab'}>
+          {visibleBookings.map((booking) => {
+            const cancelled = booking.status === 'Cancelado' || booking.status === 'Vencido';
+            const pendingPayment = booking.status === 'Pendiente de pago';
+            const whatsappUrl = booking.whatsapp ? `https://wa.me/${booking.whatsapp}?text=${encodeURIComponent(`Hola, necesito gestionar mi reserva en ${booking.complex} del ${booking.date} a las ${booking.time}.`)}` : '';
+            return <article className={`booking-card${cancelled ? ' is-cancelled' : ''}${pendingPayment ? ' is-pending-payment' : ''}`} key={booking.id}><div className="booking-card__date"><strong>{formatBookingDay(booking.date)}</strong><span>{new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(new Date(`${booking.date}T12:00:00`)).toUpperCase()}</span></div><div className="booking-card__content"><div><h3>{booking.complex || 'Complejo'}</h3><p>{booking.court} · {booking.date} · {booking.time}</p></div><span className={`status-pill${cancelled ? ' is-cancelled' : pendingPayment ? ' is-pending' : ''}`}><span /> {booking.status || 'Confirmado'}{booking.recurrenceId ? ' · Fijo' : ''}</span><div className="booking-card__meta"><span>{booking.sport || 'Turno'}</span><strong>{booking.price ? formatARS(booking.price) : '—'}</strong></div>{booking.deposit ? <div className="booking-payment"><span>Seña: <strong>{formatARS(booking.deposit)}</strong>{booking.balance !== null ? ` · Saldo en el complejo: ${formatARS(booking.balance)}` : ''}</span>{!pendingPayment && <small>Las señas confirmadas no se reintegran automáticamente.</small>}</div> : null}{!cancelled && <div className="booking-card__actions">{pendingPayment ? <>{booking.paymentUrl && <a className="booking-card__pay" href={booking.paymentUrl}>Pagar seña <Icon name="arrow" size={14} /></a>}<Button variant="secondary" size="sm" type="button" onClick={() => onCancel(booking)}>Cancelar solicitud</Button></> : booking.canCancel ? <Button variant="secondary" size="sm" type="button" onClick={() => onCancel(booking)}>Cancelar reserva</Button> : whatsappUrl ? <a className="booking-card__whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer">Gestionar por WhatsApp <Icon name="arrow" size={14} /></a> : <small>Para cancelar, contactá al complejo.</small>}</div>}</div></article>;
+          })}
+        </div>
+        {!visibleBookings.length && <div className="empty-state booking-empty"><PitchMark compact /><h3>{emptyCopy.title}</h3><p>{emptyCopy.description}</p>{emptyCopy.action && <Button variant="secondary" size="sm" type="button" onClick={() => onChange('explore')}>{emptyCopy.action}</Button>}</div>}
+      </> : <div className="quiet-panel"><PitchMark compact /><h3>Guardá tus próximos partidos</h3><p>Ingresá con Google para consultar tu historial y reservar.</p><Button type="button" onClick={onLogin}>Continuar con Google <Icon name="arrow" size={17} /></Button></div>}
+    </main>
+  </div>;
 }
 
 function SavedScreen({ complexes, saved, onOpen, onToggleSaved, onChange, session, onLogin }) {
@@ -387,8 +412,8 @@ export default function Reservas() {
   if (screen === 'booking' && selectedComplex && selectedCourt) return layout(null, <BookingScreen complex={selectedComplex} court={selectedCourt} date={selectedDate} time={selectedTime} form={form} setForm={setForm} repeatWeekly={repeatWeekly} setRepeatWeekly={setRepeatWeekly} repeatWeeks={repeatWeeks} setRepeatWeeks={setRepeatWeeks} onBack={() => setScreen('detail')} onHome={backToExplore} onConfirm={confirmBooking} error={error} defaultName={profile?.nombre || session?.user?.name} defaultPhone={profile?.whatsapp} submitting={submittingBooking} />);
   if (screen === 'success' && selectedComplex && selectedCourt) return layout(null, <SuccessScreen complex={selectedComplex} court={selectedCourt} date={selectedDate} time={selectedTime} repeatWeeks={repeatWeekly ? repeatWeeks : 0} onDone={backToExplore} />);
   const openAccount = () => session?.user ? setScreen('profile') : loginWithGoogle();
-  if (screen === 'bookings') return layout('bookings', <BookingsScreen bookings={bookings} onChange={setScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} error={error} notice={paymentNotice} />);
-  if (screen === 'saved') return layout('saved', <SavedScreen complexes={complexes} saved={saved} onOpen={openComplex} onToggleSaved={toggleSaved} onChange={setScreen} session={session} onLogin={loginWithGoogle} />);
-  if (screen === 'profile') return layout('profile', <ProfileScreen key={profile?.email || session?.user?.id || 'guest'} profile={profile} session={session?.user} onChange={setScreen} onLogin={loginWithGoogle} onLogout={logout} onSave={saveProfile} />);
+  if (screen === 'bookings') return layout('bookings', <BookingsScreen bookings={bookings} onChange={setScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} error={error} notice={paymentNotice} />, true);
+  if (screen === 'saved') return layout('saved', <SavedScreen complexes={complexes} saved={saved} onOpen={openComplex} onToggleSaved={toggleSaved} onChange={setScreen} session={session} onLogin={loginWithGoogle} />, true);
+  if (screen === 'profile') return layout('profile', <ProfileScreen key={profile?.email || session?.user?.id || 'guest'} profile={profile} session={session?.user} onChange={setScreen} onLogin={loginWithGoogle} onLogout={logout} onSave={saveProfile} />, true);
   return layout('explore', <ExploreScreen complexes={complexes} query={query} setQuery={setQuery} onOpen={openComplex} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} canManage={canManage} />, true);
 }
