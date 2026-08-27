@@ -912,6 +912,8 @@ app.post('/api/pagos/mercadopago/suscripciones/webhook', async (req, res, next) 
       hasSignature: Boolean(req.headers['x-signature']),
       hasRequestId: Boolean(req.headers['x-request-id']),
       signatureLength: String(req.headers['x-signature'] || '').length,
+      requestId: String(req.headers['x-request-id'] || ''),
+      signature: String(req.headers['x-signature'] || ''),
       resourceId: String(resourceId),
     });
     return res.status(401).json({ error: 'Firma de webhook inválida' });
