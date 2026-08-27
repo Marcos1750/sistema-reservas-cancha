@@ -15,6 +15,7 @@ import { getComplexTheme, getSportTheme } from "./sportTheme";
 import { useSessionWithFallback } from "./useSessionWithFallback";
 
 const sports = ["Fútbol 5", "Pádel", "Tenis"];
+const CALENDAR_PAGE_SIZE = 15;
 const provinces = [
   "Buenos Aires",
   "Catamarca",
@@ -1951,6 +1952,8 @@ export default function PanelAdmin() {
   const [admins, setAdmins] = useState([]);
   const [filterDate, setFilterDate] = useState("");
   const [agendaNow, setAgendaNow] = useState(() => new Date());
+  const [calendarTab, setCalendarTab] = useState("upcoming");
+  const [upcomingLimit, setUpcomingLimit] = useState(CALENDAR_PAGE_SIZE);
   const [activeSection, setActiveSection] = useState("overview");
   const [error, setError] = useState("");
   const [profileAttempt, setProfileAttempt] = useState(0);
@@ -2017,6 +2020,7 @@ export default function PanelAdmin() {
   const historyBookings = filterDate
     ? bookingSections.history.filter((booking) => booking.fecha === filterDate)
     : bookingSections.history;
+  const visibleUpcomingBookings = upcomingBookings.slice(0, upcomingLimit);
   const login = () =>
     authClient.signIn.social({
       provider: "google",
@@ -2025,6 +2029,17 @@ export default function PanelAdmin() {
   const logout = async () => {
     await authClient.signOut();
     setProfile(null);
+  };
+  const changeFilterDate = (nextDate) => {
+    setFilterDate(nextDate);
+    setUpcomingLimit(CALENDAR_PAGE_SIZE);
+  };
+  const changeAdminSection = (nextSection) => {
+    setActiveSection(nextSection);
+    if (nextSection === "calendar") {
+      setCalendarTab("upcoming");
+      setUpcomingLimit(CALENDAR_PAGE_SIZE);
+    }
   };
   const cancelBooking = async (id) => {
     if (
@@ -2117,7 +2132,7 @@ export default function PanelAdmin() {
                 aria-label={
                   itemAttention ? `${label}. ${itemAttention.label}` : undefined
                 }
-                onClick={() => setActiveSection(id)}
+                onClick={() => changeAdminSection(id)}
               >
                 <Icon name={icon} size={18} />
                 <span>{label}</span>
@@ -2222,28 +2237,66 @@ export default function PanelAdmin() {
                 <CalendarPicker
                   label="Filtrar por fecha"
                   value={filterDate}
-                  onChange={setFilterDate}
+                  onChange={changeFilterDate}
                 />
                 <Button
                   variant="chip"
                   size="sm"
                   type="button"
-                  onClick={() => setFilterDate("")}
+                  onClick={() => changeFilterDate("")}
                 >
                   Todos
                 </Button>
               </div>
             </div>
-            <div className="admin-calendar-sections">
-              <section className="admin-calendar-section">
-                <div className="admin-calendar-section__heading"><div><span className="section-kicker">AGENDA ACTIVA</span><h3>Próximos</h3></div><span>{upcomingBookings.length} {upcomingBookings.length === 1 ? "turno" : "turnos"}</span></div>
-                <AdminTable bookings={upcomingBookings} onCancel={cancelBooking} now={agendaNow} emptyTitle={filterDate ? "No hay próximos turnos para esta fecha" : undefined} emptyDescription={filterDate ? "Probá con otra fecha o mostrálos todos." : undefined} />
+            <div className="admin-calendar-switch" role="group" aria-label="Vista de reservas">
+              <button
+                className={`admin-calendar-switch__tab${calendarTab === "upcoming" ? " is-active" : ""}`}
+                id="admin-calendar-tab-upcoming"
+                type="button"
+                aria-pressed={calendarTab === "upcoming"}
+                aria-controls="admin-calendar-panel-upcoming"
+                onClick={() => setCalendarTab("upcoming")}
+              >
+                <span>Próximos</span>
+                <b>{upcomingBookings.length}</b>
+              </button>
+              <button
+                className={`admin-calendar-switch__tab${calendarTab === "history" ? " is-active" : ""}`}
+                id="admin-calendar-tab-history"
+                type="button"
+                aria-pressed={calendarTab === "history"}
+                aria-controls="admin-calendar-panel-history"
+                onClick={() => setCalendarTab("history")}
+              >
+                <span>Historial</span>
+                <b>{historyBookings.length}</b>
+              </button>
+            </div>
+            {calendarTab === "upcoming" ? (
+              <section
+                className="admin-calendar-panel"
+                id="admin-calendar-panel-upcoming"
+                aria-labelledby="admin-calendar-tab-upcoming"
+              >
+                <AdminTable bookings={visibleUpcomingBookings} onCancel={cancelBooking} now={agendaNow} emptyTitle={filterDate ? "No hay próximos turnos para esta fecha" : undefined} emptyDescription={filterDate ? "Probá con otra fecha o mostrálos todos." : undefined} />
+                {upcomingBookings.length > visibleUpcomingBookings.length && (
+                  <div className="admin-calendar-load-more">
+                    <Button className="admin-calendar-load-more__button" variant="secondary" type="button" onClick={() => setUpcomingLimit((limit) => limit + CALENDAR_PAGE_SIZE)}>
+                      Cargar 15 más
+                    </Button>
+                  </div>
+                )}
               </section>
-              <section className="admin-calendar-section admin-calendar-section--history">
-                <div className="admin-calendar-section__heading"><div><span className="section-kicker">REGISTRO RECIENTE</span><h3>Historial</h3></div><span>{historyBookings.length} {historyBookings.length === 1 ? "turno" : "turnos"}</span></div>
+            ) : (
+              <section
+                className="admin-calendar-panel"
+                id="admin-calendar-panel-history"
+                aria-labelledby="admin-calendar-tab-history"
+              >
                 <AdminTable bookings={historyBookings} onHideHistory={hideHistoryBooking} mode="history" now={agendaNow} />
               </section>
-            </div>
+            )}
           </section>
         )}
         {activeSection === "complexes" && (
