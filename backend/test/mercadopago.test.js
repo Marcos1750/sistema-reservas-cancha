@@ -25,6 +25,12 @@ test('valida firmas sin x-request-id cuando Mercado Pago no lo envía', () => {
   assert.equal(isValidWebhookSignature({ 'x-signature': `ts=${ts},v1=${signature}` }, 99), true);
 });
 
+test('valida firmas con request-id vacío cuando Mercado Pago no lo envía', () => {
+  const ts = '987';
+  const signature = crypto.createHmac('sha256', process.env.MERCADOPAGO_WEBHOOK_SECRET).update(`id:77;request-id:;ts:${ts};`).digest('hex');
+  assert.equal(isValidWebhookSignature({ 'x-signature': `ts=${ts},v1=${signature}` }, 77), true);
+});
+
 test('anula la recurrencia con el estado documentado por Mercado Pago', async () => {
   const originalFetch = globalThis.fetch;
   let request;

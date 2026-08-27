@@ -203,12 +203,17 @@ export function isValidWebhookSignature(headers, paymentId, secretOverride = '')
     return separator === -1 ? [part.trim(), ''] : [part.slice(0, separator).trim(), part.slice(separator + 1).trim()];
   }));
   if (!values.ts || !values.v1 || !paymentId) return false;
-  const parts = [`id:${String(paymentId).toLowerCase()}`];
-  if (requestId) parts.push(`request-id:${requestId}`);
-  parts.push(`ts:${values.ts}`);
-  const manifest = `${parts.join(';')};`;
-  const expected = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
   const received = Buffer.from(values.v1);
-  const expectedBuffer = Buffer.from(expected);
-  return received.length === expectedBuffer.length && crypto.timingSafeEqual(received, expectedBuffer);
+  const resource = String(paymentId).toLowerCase();
+  // Mercado Pago ha emitido webhooks sin x-request-id. Algunas variantes
+  // conservan el campo vacío en el manifiesto y otras lo omiten por completo.
+  // Ambas siguen exigiendo una HMAC válida con la clave secreta.
+  const manifests = [
+    `id:${resource};request-id:${requestId};ts:${values.ts};`,
+    `id:${resource};ts:${values.ts};`,
+  ];
+  return manifests.some((manifest) => {
+    const expected = Buffer.from(crypto.createHmac('sha256', secret).update(manifest).digest('hex'));
+    return received.length === expected.length && crypto.timingSafeEqual(received, expected);
+  });
 }
