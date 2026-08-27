@@ -907,17 +907,7 @@ app.post('/api/pagos/mercadopago/suscripciones/webhook', async (req, res, next) 
   const resourceId = req.body?.data?.id || req.query['data.id'];
   if (!resourceId) return res.status(200).json({ received: true });
   const secret = process.env.MERCADOPAGO_SUBSCRIPTIONS_WEBHOOK_SECRET || process.env.MERCADOPAGO_WEBHOOK_SECRET;
-  if (!isValidWebhookSignature(req.headers, resourceId, secret)) {
-    console.warn('Webhook de suscripción rechazado por firma', {
-      hasSignature: Boolean(req.headers['x-signature']),
-      hasRequestId: Boolean(req.headers['x-request-id']),
-      signatureLength: String(req.headers['x-signature'] || '').length,
-      requestId: String(req.headers['x-request-id'] || ''),
-      signature: String(req.headers['x-signature'] || ''),
-      resourceId: String(resourceId),
-    });
-    return res.status(401).json({ error: 'Firma de webhook inválida' });
-  }
+  if (!isValidWebhookSignature(req.headers, resourceId, secret)) return res.status(401).json({ error: 'Firma de webhook inválida' });
   try {
     const topic = cleanText(req.body?.type || req.query.type || '', 80).toLowerCase();
     let providerId = String(resourceId);
