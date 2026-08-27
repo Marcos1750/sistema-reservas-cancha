@@ -201,7 +201,9 @@ async function migrate(client = pool) {
       estado TEXT NOT NULL CHECK (estado IN ('pendiente', 'prueba', 'activa', 'en_gracia', 'vencida', 'anulada')),
       referencia_externa TEXT NOT NULL UNIQUE,
       proveedor_id TEXT UNIQUE,
+      titular_cuit TEXT,
       precio_ars INTEGER NOT NULL CHECK (precio_ars >= 0),
+      prueba_reservada_at TIMESTAMPTZ,
       prueba_iniciada_at TIMESTAMPTZ,
       prueba_finaliza_at TIMESTAMPTZ,
       proximo_cobro_at TIMESTAMPTZ,
@@ -226,6 +228,9 @@ async function migrate(client = pool) {
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE suscripciones ADD COLUMN IF NOT EXISTS titular_cuit TEXT;
+    ALTER TABLE suscripciones ADD COLUMN IF NOT EXISTS prueba_reservada_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS notificaciones_suscripcion (
       id BIGSERIAL PRIMARY KEY,
@@ -371,6 +376,14 @@ async function migrate(client = pool) {
     CREATE INDEX IF NOT EXISTS suscripciones_user_idx ON suscripciones (user_id);
     CREATE INDEX IF NOT EXISTS suscripciones_email_idx ON suscripciones (lower(email));
     CREATE INDEX IF NOT EXISTS suscripciones_estado_idx ON suscripciones (estado, updated_at);
+    UPDATE suscripciones s
+       SET titular_cuit=d.cuit,
+           prueba_reservada_at=COALESCE(s.prueba_reservada_at, s.prueba_iniciada_at)
+      FROM datos_fiscales_suscripcion d
+     WHERE s.user_id=d.user_id AND s.titular_cuit IS NULL AND d.cuit ~ '^[0-9]{11}$';
+    UPDATE suscripciones SET prueba_reservada_at=prueba_iniciada_at
+     WHERE prueba_reservada_at IS NULL AND prueba_iniciada_at IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS suscripciones_titular_cuit_idx ON suscripciones (titular_cuit);
     CREATE INDEX IF NOT EXISTS eventos_suscripcion_subscription_idx ON eventos_suscripcion (suscripcion_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS notificaciones_suscripcion_pending_idx ON notificaciones_suscripcion (estado, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS bloqueos_cancha_fecha_uidx

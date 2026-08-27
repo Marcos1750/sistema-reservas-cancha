@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import crypto from 'node:crypto';
-import { calculateDeposit, decryptSecret, encryptSecret, isValidWebhookSignature, paymentExpiry, readSignedState, signedState } from '../mercadopago.js';
+import { calculateDeposit, cancelSubscription, decryptSecret, encryptSecret, isValidWebhookSignature, paymentExpiry, readSignedState, searchAuthorizedPayments, signedState } from '../mercadopago.js';
 
 process.env.MERCADOPAGO_TOKEN_ENCRYPTION_KEY = 'test-key';
 process.env.MERCADOPAGO_OAUTH_STATE_SECRET = 'state-key';
 process.env.MERCADOPAGO_WEBHOOK_SECRET = 'webhook-key';
+process.env.MERCADOPAGO_SUBSCRIPTIONS_ACCESS_TOKEN = 'subscription-test-token';
 
 test('calcula la seña redondeando hacia arriba', () => assert.equal(calculateDeposit(9999, 10), 1000));
 test('cifra y descifra credenciales de Mercado Pago', () => assert.equal(decryptSecret(encryptSecret('APP_USR-token')), 'APP_USR-token'));
@@ -22,4 +23,37 @@ test('valida firmas sin x-request-id cuando Mercado Pago no lo envía', () => {
   const ts = '789';
   const signature = crypto.createHmac('sha256', process.env.MERCADOPAGO_WEBHOOK_SECRET).update(`id:99;ts:${ts};`).digest('hex');
   assert.equal(isValidWebhookSignature({ 'x-signature': `ts=${ts},v1=${signature}` }, 99), true);
+});
+
+test('anula la recurrencia con el estado documentado por Mercado Pago', async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url, options };
+    return new Response(JSON.stringify({ id: 'preapproval-1', status: 'canceled' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await cancelSubscription('preapproval-1');
+    assert.equal(result.status, 'canceled');
+    assert.equal(request.url, 'https://api.mercadopago.com/preapproval/preapproval-1');
+    assert.deepEqual(JSON.parse(request.options.body), { status: 'canceled' });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('busca las cuotas por el id de la suscripción', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = '';
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await searchAuthorizedPayments({ preapprovalId: 'preapproval-2' });
+    assert.match(requestedUrl, /authorized_payments\/search\?/);
+    assert.match(requestedUrl, /preapproval_id=preapproval-2/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

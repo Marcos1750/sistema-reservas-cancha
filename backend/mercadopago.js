@@ -59,9 +59,22 @@ function credentials() {
 }
 
 async function mpFetch(path, options = {}) {
-  const response = await fetch(`${MP_API}${path}`, options);
+  let response;
+  try {
+    response = await fetch(`${MP_API}${path}`, { ...options, signal: options.signal || AbortSignal.timeout(15_000) });
+  } catch (cause) {
+    const error = new Error(cause?.name === 'TimeoutError' ? 'Mercado Pago no respondió a tiempo' : 'No pudimos comunicarnos con Mercado Pago');
+    error.code = 'provider_unavailable';
+    error.cause = cause;
+    throw error;
+  }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || data.error || 'Mercado Pago no pudo procesar la operación');
+  if (!response.ok) {
+    const error = new Error(data.message || data.error || 'Mercado Pago no pudo procesar la operación');
+    error.code = data.error || data.cause?.[0]?.code || `http_${response.status}`;
+    error.providerStatus = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -116,7 +129,7 @@ function subscriptionAccessToken() {
   return token;
 }
 
-export async function createSubscriptionCheckout(subscription, plan) {
+export async function createSubscriptionCheckout(subscription, plan, { trialDays = 14 } = {}) {
   const baseUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL;
   if (!baseUrl) throw new Error('APP_URL es obligatorio para crear una suscripción');
   const body = {
@@ -131,10 +144,10 @@ export async function createSubscriptionCheckout(subscription, plan) {
       frequency_type: 'months',
       transaction_amount: subscription.precio_ars,
       currency_id: 'ARS',
-      free_trial: { frequency: 14, frequency_type: 'days' },
     },
     back_url: `${baseUrl.replace(/\/$/, '')}/planes?suscripcion=${encodeURIComponent(subscription.referencia_externa)}`,
   };
+  if (trialDays > 0) body.auto_recurring.free_trial = { frequency: trialDays, frequency_type: 'days' };
   if (process.env.MERCADOPAGO_SUBSCRIPTIONS_WEBHOOK_URL) body.notification_url = process.env.MERCADOPAGO_SUBSCRIPTIONS_WEBHOOK_URL;
   const data = await mpFetch('/preapproval', {
     method: 'POST',
@@ -148,11 +161,27 @@ export async function getSubscription(providerId) {
   return mpFetch(`/preapproval/${encodeURIComponent(providerId)}`, { headers: { Authorization: `Bearer ${subscriptionAccessToken()}` } });
 }
 
+export async function getAuthorizedPayment(authorizedPaymentId) {
+  return mpFetch(`/authorized_payments/${encodeURIComponent(authorizedPaymentId)}`, { headers: { Authorization: `Bearer ${subscriptionAccessToken()}` } });
+}
+
+export async function searchAuthorizedPayments({ preapprovalId = '', paymentId = '' } = {}) {
+  const params = new URLSearchParams({ limit: '20' });
+  if (preapprovalId) params.set('preapproval_id', String(preapprovalId));
+  if (paymentId) params.set('payment_id', String(paymentId));
+  if (!preapprovalId && !paymentId) throw new Error('Se necesita una suscripción o un pago para buscar las cuotas');
+  return mpFetch(`/authorized_payments/search?${params}`, { headers: { Authorization: `Bearer ${subscriptionAccessToken()}` } });
+}
+
+export async function getSubscriptionPayment(paymentId) {
+  return mpFetch(`/v1/payments/${encodeURIComponent(paymentId)}`, { headers: { Authorization: `Bearer ${subscriptionAccessToken()}` } });
+}
+
 export async function cancelSubscription(providerId) {
   return mpFetch(`/preapproval/${encodeURIComponent(providerId)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${subscriptionAccessToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'cancelled' }),
+    body: JSON.stringify({ status: 'canceled' }),
   });
 }
 
@@ -160,7 +189,7 @@ export async function updateSubscriptionAmount(providerId, amount) {
   return mpFetch(`/preapproval/${encodeURIComponent(providerId)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${subscriptionAccessToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ auto_recurring: { transaction_amount: amount, currency_id: 'ARS', frequency: 1, frequency_type: 'months' } }),
+    body: JSON.stringify({ auto_recurring: { transaction_amount: amount, currency_id: 'ARS' } }),
   });
 }
 

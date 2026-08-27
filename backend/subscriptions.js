@@ -6,12 +6,69 @@ export const SUBSCRIPTION_PLANS = {
 
 export const ACTIVE_SUBSCRIPTION_STATES = new Set(['prueba', 'activa', 'en_gracia']);
 
+const APPROVED_PAYMENT_STATES = new Set(['approved', 'accredited']);
+const REJECTED_PAYMENT_STATES = new Set(['rejected', 'cancelled', 'canceled', 'refunded', 'charged_back']);
+const CANCELED_PROVIDER_STATES = new Set(['cancelled', 'canceled']);
+
 export function planFor(code) {
   return SUBSCRIPTION_PLANS[code] || null;
 }
 
-export function isSubscriptionActive(subscription) {
-  return subscription?.tipo === 'gratuita' || ACTIVE_SUBSCRIPTION_STATES.has(subscription?.estado);
+export function isSubscriptionActive(subscription, now = new Date()) {
+  if (subscription?.tipo === 'gratuita') return subscription?.estado === 'activa';
+  if (!ACTIVE_SUBSCRIPTION_STATES.has(subscription?.estado)) return false;
+  if (subscription.estado === 'en_gracia' && subscription.gracia_hasta_at) {
+    return new Date(subscription.gracia_hasta_at).getTime() > new Date(now).getTime();
+  }
+  return true;
+}
+
+export function authorizedPaymentOutcome(invoice) {
+  if (!invoice) return 'none';
+  const paymentStatus = String(invoice.payment?.status || '').toLowerCase();
+  const paymentDetail = String(invoice.payment?.status_detail || '').toLowerCase();
+  const invoiceStatus = String(invoice.status || '').toLowerCase();
+  const summarized = String(invoice.summarized || '').toLowerCase();
+  if (APPROVED_PAYMENT_STATES.has(paymentStatus) || APPROVED_PAYMENT_STATES.has(paymentDetail) || summarized === 'approved') return 'approved';
+  if (REJECTED_PAYMENT_STATES.has(paymentStatus) || REJECTED_PAYMENT_STATES.has(paymentDetail) || summarized === 'rejected' || invoiceStatus === 'recycling') return 'rejected';
+  return 'pending';
+}
+
+function invoiceTimestamp(invoice) {
+  const value = invoice?.debit_date || invoice?.last_modified || invoice?.date_created;
+  const timestamp = value ? new Date(value).getTime() : Number.NaN;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+export function summarizeAuthorizedPayments(invoices = []) {
+  const ordered = [...invoices].sort((left, right) => invoiceTimestamp(right) - invoiceTimestamp(left));
+  return {
+    latest: ordered[0] || null,
+    latestOutcome: authorizedPaymentOutcome(ordered[0]),
+    approvedCount: ordered.filter((invoice) => authorizedPaymentOutcome(invoice) === 'approved').length,
+  };
+}
+
+export function providerNextPaymentDate(provider) {
+  return provider?.next_payment_date || provider?.auto_recurring?.next_payment_date || null;
+}
+
+export function deriveProviderSubscriptionState(current, provider, billing = {}, now = new Date()) {
+  const currentState = current?.estado || 'pendiente';
+  const providerStatus = String(provider?.status || '').toLowerCase();
+  if (CANCELED_PROVIDER_STATES.has(providerStatus)) return 'anulada';
+  if (providerStatus === 'paused') return 'en_gracia';
+  if (billing.latestOutcome === 'approved') return 'activa';
+  if (billing.latestOutcome === 'rejected') return 'en_gracia';
+  if (!['authorized', 'active'].includes(providerStatus)) return currentState;
+  const providerTrialDays = Number(provider?.auto_recurring?.free_trial?.frequency || (current?.prueba_reservada_at ? 14 : 0));
+  if (!current?.prueba_iniciada_at) return providerTrialDays > 0 ? 'prueba' : 'en_gracia';
+  const trialEndsAt = current.prueba_finaliza_at ? new Date(current.prueba_finaliza_at).getTime() : null;
+  if (trialEndsAt && trialEndsAt > new Date(now).getTime()) return 'prueba';
+  if (['activa', 'en_gracia', 'vencida'].includes(currentState)) return currentState;
+  const charged = Math.max(Number(provider?.summarized?.charged_quantity || provider?.charged_quantity || 0), Number(billing.approvedCount || 0));
+  if (charged > 0) return 'activa';
+  return 'en_gracia';
 }
 
 export function capabilitiesFor(subscription) {
