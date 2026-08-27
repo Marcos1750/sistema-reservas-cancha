@@ -398,9 +398,10 @@ body { min-width: 0; overflow-x: clip; }
 .fiscal-panel input { width: 100%; min-height: 46px; box-sizing: border-box; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.16); color: var(--warm); font: inherit; }
 .fiscal-panel__actions { display: flex; grid-column: 1 / -1; gap: 10px; }
 .plans-loading { color: var(--muted); }
-.subscription-banner { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 52px; margin: 24px 0 0; padding: 11px 15px; border: 1px solid rgba(245, 198, 109, .45); border-radius: 12px; background: rgba(145, 94, 17, .16); color: var(--warm); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
-.subscription-banner strong { display: inline-flex; align-items: center; gap: 7px; color: var(--lime); white-space: nowrap; }
-.subscription-banner--vencida, .subscription-banner--anulada { border-color: rgba(237, 111, 111, .5); background: rgba(141, 32, 32, .16); }
+.admin-nav-item { position: relative; }
+.subscription-attention { position: absolute; top: 12px; right: 11px; width: 7px; height: 7px; border: 2px solid var(--ink); border-radius: 999px; box-shadow: 0 0 0 1px rgba(4, 9, 7, .32); }
+.subscription-attention--warning { background: #f5c66d; }
+.subscription-attention--critical { background: #ed6f6f; }
 .subscription-card { display: grid; gap: 24px; padding: 28px; }
 .subscription-card--warning, .subscription-card--en_gracia { border-color: rgba(245, 198, 109, .45); }
 .subscription-card--vencida, .subscription-card--anulada { border-color: rgba(237, 111, 111, .45); }
@@ -455,7 +456,7 @@ body { min-width: 0; overflow-x: clip; }
   .plans-header { min-height: 72px; }
   .plans-header .brand span { font-size: 15px; }
   .plans-intro h1 { font-size: 42px; }
-  .plans-custom, .subscription-card__top, .subscription-banner { align-items: flex-start; flex-direction: column; }
+  .plans-custom, .subscription-card__top { align-items: flex-start; flex-direction: column; }
   .fiscal-panel form { grid-template-columns: 1fr; }
   .fiscal-panel__actions { flex-direction: column; }
   .fiscal-panel__actions button { width: 100%; }
