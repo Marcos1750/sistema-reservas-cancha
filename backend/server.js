@@ -804,6 +804,9 @@ app.get('/api/suscripcion', requireAuth(), async (req, res, next) => {
 });
 
 app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
+  if (req.user.role === 'superadmin') {
+    return res.status(403).json({ error: 'La cuenta superadmin no necesita una suscripción.' });
+  }
   const planDefinition = planFor(cleanText(req.body?.plan_codigo, 20));
   if (!planDefinition) return res.status(400).json({ error: 'Elegí un plan válido.' });
   let checkout = null;
