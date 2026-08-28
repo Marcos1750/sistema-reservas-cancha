@@ -22,6 +22,7 @@ test('la gracia deja de habilitar acciones al llegar a su fecha límite', () => 
 test('una anulación o vencimiento bloquean siempre aunque el control global esté en modo de prueba', () => {
   assert.equal(subscriptionRestrictionsRequired({ estado: 'anulada' }, false), true);
   assert.equal(subscriptionRestrictionsRequired({ estado: 'vencida' }, false), true);
+  assert.equal(subscriptionRestrictionsRequired({ estado: 'en_gracia', gracia_hasta_at: '2026-08-26T11:59:59.000Z' }, false, new Date('2026-08-26T12:00:00.000Z')), true);
   assert.equal(subscriptionRestrictionsRequired({ estado: 'sin_suscripcion' }, false), false);
 });
 

@@ -24,8 +24,10 @@ export function isSubscriptionActive(subscription, now = new Date()) {
   return true;
 }
 
-export function subscriptionRestrictionsRequired(subscription, globallyEnabled = false) {
-  return globallyEnabled || ['anulada', 'vencida'].includes(subscription?.estado);
+export function subscriptionRestrictionsRequired(subscription, globallyEnabled = false, now = new Date()) {
+  return globallyEnabled
+    || ['anulada', 'vencida'].includes(subscription?.estado)
+    || (subscription?.estado === 'en_gracia' && !isSubscriptionActive(subscription, now));
 }
 
 export function canReuseSubscriptionCheckout(subscription, now = new Date()) {
