@@ -7,7 +7,7 @@ import { del } from '@vercel/blob';
 import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getAuthorizedPayment, getPayment, getSubscription, getSubscriptionPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchAuthorizedPayments, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
-import { capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, publicSubscription, summarizeAuthorizedPayments } from './subscriptions.js';
+import { canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, publicSubscription, summarizeAuthorizedPayments } from './subscriptions.js';
 import {
   auth,
   migrateAuth,
@@ -600,6 +600,43 @@ async function applyProviderSubscription(subscription, provider, eventType = 'pr
   } finally { client.release(); }
 }
 
+async function refreshExpiredPendingCheckout(userId, email) {
+  const client = await pool.connect();
+  let stale = null;
+  try {
+    await client.query('BEGIN');
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`subscription-checkout:${userId}`]);
+    const existing = await subscriptionRowForUser(userId, email, client);
+    const checkoutUrl = existing?.payload_proveedor?.init_point || existing?.payload_proveedor?.sandbox_init_point;
+    if (existing?.estado === 'pendiente' && existing.proveedor_id && (!hasCheckoutUrl(checkoutUrl) || !canReuseSubscriptionCheckout(existing))) {
+      stale = { id: existing.id, proveedorId: existing.proveedor_id };
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally { client.release(); }
+  if (!stale) return;
+  let snapshot;
+  try {
+    snapshot = await subscriptionProviderSnapshot(stale.proveedorId);
+  } catch (error) {
+    throw subscriptionError(`No pudimos renovar el enlace de Mercado Pago. ${cleanText(error.message, 200)}`, 502);
+  }
+  if (String(snapshot.provider?.status || '').toLowerCase() !== 'pending') {
+    const current = await subscriptionRowForUser(userId, email);
+    if (current?.id === stale.id) await applyProviderSubscription(current, snapshot.provider, 'checkout_reconciliado', null, snapshot.billing);
+    return;
+  }
+  try {
+    await cancelSubscription(stale.proveedorId);
+  } catch (error) {
+    throw subscriptionError(`No pudimos anular el enlace vencido en Mercado Pago. ${cleanText(error.message, 200)}`, 502);
+  }
+  const cleared = await pool.query("UPDATE suscripciones SET proveedor_id=NULL, payload_proveedor=NULL, updated_at=NOW() WHERE id=$1 AND estado='pendiente' AND proveedor_id=$2 RETURNING *", [stale.id, stale.proveedorId]);
+  if (cleared.rowCount) await recordSubscriptionEvent(stale.id, 'checkout_vencido_anulado', { proveedor_id: stale.proveedorId });
+}
+
 async function reconcileSubscriptions(limit = 50) {
   const { rows } = await pool.query("SELECT * FROM suscripciones WHERE tipo='mercadopago' AND estado IN ('pendiente', 'prueba', 'activa', 'en_gracia', 'vencida') AND proveedor_id IS NOT NULL ORDER BY updated_at ASC LIMIT $1", [limit]);
   const results = await Promise.allSettled(rows.map(async (subscription) => {
@@ -771,6 +808,7 @@ app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
   let checkout = null;
   let linkedToLocalSubscription = false;
   try {
+    await refreshExpiredPendingCheckout(req.user.id, req.user.email);
     const client = await pool.connect();
     let subscription;
     let trialDays = 0;
@@ -782,13 +820,13 @@ app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
       if (existing && isSubscriptionActive(existing)) throw subscriptionError('Ya tenés una suscripción activa. Usá la opción de mejora de plan.', 409);
       if (existing?.estado === 'pendiente' && existing.proveedor_id) {
         const existingUrl = existing.payload_proveedor?.init_point || existing.payload_proveedor?.sandbox_init_point;
-        if (hasCheckoutUrl(existingUrl)) {
+        if (hasCheckoutUrl(existingUrl) && canReuseSubscriptionCheckout(existing)) {
           await client.query('COMMIT');
           return res.status(200).json({ checkout_url: existingUrl, referencia: existing.referencia_externa, reutilizada: true });
         }
         throw subscriptionError('Ya hay una suscripción pendiente en Mercado Pago. Volvé a intentarlo desde el enlace original o anulala antes de crear otra.', 409);
       }
-      if (existing?.estado === 'pendiente' && new Date(existing.updated_at).getTime() > Date.now() - 2 * 60_000) {
+      if (existing?.estado === 'pendiente' && !existing.proveedor_id && new Date(existing.updated_at).getTime() > Date.now() - 2 * 60_000) {
         throw subscriptionError('Estamos creando tu enlace de Mercado Pago. Esperá unos segundos y volvé a intentarlo.', 409);
       }
       const fiscal = await client.query('SELECT cuit FROM datos_fiscales_suscripcion WHERE user_id=$1', [req.user.id]);

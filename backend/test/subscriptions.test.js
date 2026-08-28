@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizedPaymentOutcome, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, publicSubscription, summarizeAuthorizedPayments } from '../subscriptions.js';
+import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, publicSubscription, summarizeAuthorizedPayments } from '../subscriptions.js';
 
 test('los planes comerciales tienen los límites acordados', () => {
   assert.deepEqual(planFor('fundador').maxCourts, 6);
@@ -17,6 +17,13 @@ test('la gracia deja de habilitar acciones al llegar a su fecha límite', () => 
   const now = new Date('2026-08-26T12:00:00.000Z');
   assert.equal(isSubscriptionActive({ estado: 'en_gracia', tipo: 'mercadopago', gracia_hasta_at: '2026-08-26T11:59:59.000Z' }, now), false);
   assert.equal(isSubscriptionActive({ estado: 'en_gracia', tipo: 'mercadopago', gracia_hasta_at: '2026-08-26T12:00:01.000Z' }, now), true);
+});
+
+test('reutiliza sólo enlaces de checkout pendientes recientes', () => {
+  const now = new Date('2026-08-28T12:00:00.000Z');
+  assert.equal(canReuseSubscriptionCheckout({ updated_at: '2026-08-28T11:45:00.000Z' }, now), true);
+  assert.equal(canReuseSubscriptionCheckout({ updated_at: '2026-08-28T11:20:00.000Z' }, now), false);
+  assert.equal(canReuseSubscriptionCheckout({ updated_at: 'fecha inválida' }, now), false);
 });
 
 test('el usuario gratuito usa los límites estándar sin cobro', () => {

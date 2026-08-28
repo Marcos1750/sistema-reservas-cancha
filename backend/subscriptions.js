@@ -5,6 +5,7 @@ export const SUBSCRIPTION_PLANS = {
 };
 
 export const ACTIVE_SUBSCRIPTION_STATES = new Set(['prueba', 'activa', 'en_gracia']);
+export const SUBSCRIPTION_CHECKOUT_REUSE_WINDOW_MS = 30 * 60 * 1000;
 
 const APPROVED_PAYMENT_STATES = new Set(['approved', 'accredited']);
 const REJECTED_PAYMENT_STATES = new Set(['rejected', 'cancelled', 'canceled', 'refunded', 'charged_back']);
@@ -21,6 +22,11 @@ export function isSubscriptionActive(subscription, now = new Date()) {
     return new Date(subscription.gracia_hasta_at).getTime() > new Date(now).getTime();
   }
   return true;
+}
+
+export function canReuseSubscriptionCheckout(subscription, now = new Date()) {
+  const updatedAt = new Date(subscription?.updated_at).getTime();
+  return Number.isFinite(updatedAt) && updatedAt > new Date(now).getTime() - SUBSCRIPTION_CHECKOUT_REUSE_WINDOW_MS;
 }
 
 export function authorizedPaymentOutcome(invoice) {
