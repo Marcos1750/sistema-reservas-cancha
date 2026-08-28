@@ -42,13 +42,13 @@ test('anula la recurrencia con el estado documentado por Mercado Pago', async ()
   let request;
   globalThis.fetch = async (url, options) => {
     request = { url, options };
-    return new Response(JSON.stringify({ id: 'preapproval-1', status: 'canceled' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify({ id: 'preapproval-1', status: 'cancelled' }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   try {
     const result = await cancelSubscription('preapproval-1');
-    assert.equal(result.status, 'canceled');
+    assert.equal(result.status, 'cancelled');
     assert.equal(request.url, 'https://api.mercadopago.com/preapproval/preapproval-1');
-    assert.deepEqual(JSON.parse(request.options.body), { status: 'canceled' });
+    assert.deepEqual(JSON.parse(request.options.body), { status: 'cancelled' });
   } finally {
     globalThis.fetch = originalFetch;
   }

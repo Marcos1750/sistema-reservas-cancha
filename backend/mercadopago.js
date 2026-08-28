@@ -181,7 +181,7 @@ export async function cancelSubscription(providerId) {
   return mpFetch(`/preapproval/${encodeURIComponent(providerId)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${subscriptionAccessToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'canceled' }),
+    body: JSON.stringify({ status: 'cancelled' }),
   });
 }
 
