@@ -59,6 +59,16 @@ export function providerNextPaymentDate(provider) {
   return provider?.next_payment_date || provider?.auto_recurring?.next_payment_date || null;
 }
 
+export function providerTrialWindow(provider, trialDays = 14, now = new Date()) {
+  const nextPayment = providerNextPaymentDate(provider);
+  const endsAt = nextPayment ? new Date(nextPayment) : null;
+  if (endsAt && !Number.isNaN(endsAt.getTime())) {
+    return { startsAt: new Date(endsAt.getTime() - trialDays * 86_400_000), endsAt };
+  }
+  const startsAt = new Date(now);
+  return { startsAt, endsAt: new Date(startsAt.getTime() + trialDays * 86_400_000) };
+}
+
 export function deriveProviderSubscriptionState(current, provider, billing = {}, now = new Date()) {
   const currentState = current?.estado || 'pendiente';
   const providerStatus = String(provider?.status || '').toLowerCase();

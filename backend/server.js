@@ -7,7 +7,7 @@ import { del } from '@vercel/blob';
 import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getAuthorizedPayment, getPayment, getSubscription, getSubscriptionPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchAuthorizedPayments, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
-import { canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, publicSubscription, summarizeAuthorizedPayments } from './subscriptions.js';
+import { canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, summarizeAuthorizedPayments } from './subscriptions.js';
 import {
   auth,
   migrateAuth,
@@ -548,8 +548,9 @@ async function applyProviderSubscription(subscription, provider, eventType = 'pr
     const firstSuccessful = next === 'activa' && !current.founder_consolidado && current.plan_codigo === 'fundador' && charged > 0;
     const requiresFounderGraduation = current.plan_codigo === 'fundador' && charged >= 6;
     const standardPrice = requiresFounderGraduation ? (await client.query("SELECT precio_ars FROM planes_suscripcion WHERE codigo='estandar'")).rows[0]?.precio_ars : null;
-    const trialStarted = next === 'prueba' && !current.prueba_iniciada_at ? new Date() : current.prueba_iniciada_at;
-    const trialEnds = next === 'prueba' && !current.prueba_finaliza_at ? addDays(new Date(), 14) : current.prueba_finaliza_at;
+    const trialWindow = providerTrialWindow(provider);
+    const trialStarted = next === 'prueba' && !current.prueba_iniciada_at ? trialWindow.startsAt : current.prueba_iniciada_at;
+    const trialEnds = next === 'prueba' && !current.prueba_finaliza_at ? trialWindow.endsAt : current.prueba_finaliza_at;
     let founderSlot = current.founder_cupo;
     if (next === 'prueba' && current.plan_codigo === 'fundador' && !founderSlot) {
       await client.query('SELECT pg_advisory_xact_lock(917337)');

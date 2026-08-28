@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, publicSubscription, summarizeAuthorizedPayments } from '../subscriptions.js';
+import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, summarizeAuthorizedPayments } from '../subscriptions.js';
 
 test('los planes comerciales tienen los límites acordados', () => {
   assert.deepEqual(planFor('fundador').maxCourts, 6);
@@ -56,4 +56,10 @@ test('los eventos de Mercado Pago llevan la suscripción por prueba, gracia, rec
 
 test('lee la próxima renovación desde el campo real de preapproval', () => {
   assert.equal(providerNextPaymentDate({ next_payment_date: '2026-09-01T12:00:00Z' }), '2026-09-01T12:00:00Z');
+});
+
+test('alinea el período de prueba con el primer cobro programado por Mercado Pago', () => {
+  const window = providerTrialWindow({ next_payment_date: '2026-09-11T07:31:29.000Z' });
+  assert.equal(window.startsAt.toISOString(), '2026-08-28T07:31:29.000Z');
+  assert.equal(window.endsAt.toISOString(), '2026-09-11T07:31:29.000Z');
 });
