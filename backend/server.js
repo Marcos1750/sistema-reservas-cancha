@@ -485,8 +485,14 @@ const EMAIL_COPY = {
   precio_7: ['Cambio de precio en 7 días', 'Tu próximo precio se aplicará en la siguiente renovación.'],
 };
 
+const RESEND_NOT_CONFIGURED = 'El envío de emails aún no está configurado.';
+
+function isResendConfigured() {
+  return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL);
+}
+
 async function deliverSubscriptionNotification(notification) {
-  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) return false;
+  if (!isResendConfigured()) return { deferred: true };
   const copy = EMAIL_COPY[notification.tipo] || ['Actualización de tu suscripción', 'Hay una novedad en tu suscripción de NEW MATCH.'];
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -494,7 +500,22 @@ async function deliverSubscriptionNotification(notification) {
     body: JSON.stringify({ from: process.env.RESEND_FROM_EMAIL, to: [notification.destinatario], subject: copy[0], html: `<p>${copy[1]}</p><p><a href="${appUrl()}/planes">Gestionar suscripción</a></p>` }),
   });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message || 'Resend no pudo enviar el aviso');
-  return true;
+  return { delivered: true };
+}
+
+async function attemptSubscriptionNotification(notification) {
+  try {
+    const delivery = await deliverSubscriptionNotification(notification);
+    if (delivery.delivered) {
+      await pool.query("UPDATE notificaciones_suscripcion SET estado='enviada', enviada_at=NOW(), ultimo_error='', intentos=intentos+1 WHERE id=$1", [notification.id]);
+      return;
+    }
+    if (delivery.deferred) {
+      await pool.query('UPDATE notificaciones_suscripcion SET ultimo_error=$1 WHERE id=$2', [RESEND_NOT_CONFIGURED, notification.id]);
+    }
+  } catch (error) {
+    await pool.query("UPDATE notificaciones_suscripcion SET estado='fallida', ultimo_error=$1, intentos=intentos+1 WHERE id=$2", [cleanText(error.message, 500), notification.id]);
+  }
 }
 
 async function notifySubscription(subscription, type, suffix = '') {
@@ -506,13 +527,7 @@ async function notifySubscription(subscription, type, suffix = '') {
   );
   const notification = inserted.rows[0];
   if (!notification) return;
-  try {
-    if (await deliverSubscriptionNotification(notification)) {
-      await pool.query("UPDATE notificaciones_suscripcion SET estado='enviada', enviada_at=NOW(), intentos=intentos+1 WHERE id=$1", [notification.id]);
-    }
-  } catch (error) {
-    await pool.query("UPDATE notificaciones_suscripcion SET estado='fallida', ultimo_error=$1, intentos=intentos+1 WHERE id=$2", [cleanText(error.message, 500), notification.id]);
-  }
+  await attemptSubscriptionNotification(notification);
 }
 
 async function cancelLocalSubscription(subscription, actor, reason, client = pool) {
@@ -699,10 +714,12 @@ async function runSubscriptionCron() {
     const affected = await pool.query("SELECT * FROM suscripciones WHERE plan_codigo=$1 AND tipo='mercadopago' AND estado IN ('prueba','activa','en_gracia')", [change.plan_codigo]);
     for (const subscription of affected.rows) await notifySubscription(subscription, days > 7 ? 'precio_30' : 'precio_7', `price-${change.id}`);
   }
-  const pending = await pool.query("SELECT * FROM notificaciones_suscripcion WHERE estado IN ('pendiente', 'fallida') AND intentos < 5 ORDER BY created_at LIMIT 30");
+  const pending = await pool.query(
+    "SELECT * FROM notificaciones_suscripcion WHERE estado IN ('pendiente', 'fallida') AND intentos < 5 AND (ultimo_error <> $1 OR $2) ORDER BY created_at LIMIT 30",
+    [RESEND_NOT_CONFIGURED, isResendConfigured()],
+  );
   for (const notification of pending.rows) {
-    try { if (await deliverSubscriptionNotification(notification)) await pool.query("UPDATE notificaciones_suscripcion SET estado='enviada', enviada_at=NOW(), intentos=intentos+1 WHERE id=$1", [notification.id]); }
-    catch (error) { await pool.query("UPDATE notificaciones_suscripcion SET estado='fallida', ultimo_error=$1, intentos=intentos+1 WHERE id=$2", [cleanText(error.message, 500), notification.id]); }
+    await attemptSubscriptionNotification(notification);
   }
   return { skipped: false };
   } finally {
