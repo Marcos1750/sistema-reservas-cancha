@@ -125,6 +125,16 @@ async function migrate(client = pool) {
       accepted_at TIMESTAMPTZ
     );
 
+    CREATE TABLE IF NOT EXISTS accesos_subadmin (
+      id BIGSERIAL PRIMARY KEY,
+      owner_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      user_id TEXT UNIQUE REFERENCES "user"(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      accepted_at TIMESTAMPTZ,
+      CHECK (owner_user_id <> user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS canchas_guardadas (
       user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
       cancha_id BIGINT NOT NULL REFERENCES canchas(id) ON DELETE CASCADE,
@@ -411,6 +421,10 @@ async function migrate(client = pool) {
       ON bloqueos (fecha) WHERE cancha_id IS NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS invitaciones_admin_email_lower_uidx
       ON invitaciones_admin (lower(email));
+    CREATE UNIQUE INDEX IF NOT EXISTS accesos_subadmin_email_lower_uidx
+      ON accesos_subadmin (lower(email));
+    CREATE INDEX IF NOT EXISTS accesos_subadmin_owner_idx
+      ON accesos_subadmin (owner_user_id);
 
     INSERT INTO planes_suscripcion (codigo, nombre, precio_ars, max_complejos, max_canchas, prueba_dias)
     VALUES

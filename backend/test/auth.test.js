@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
+const { applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
 
 function response() {
   return {
@@ -19,8 +19,8 @@ function response() {
   };
 }
 
-test('define los tres roles soportados', () => {
-  assert.deepEqual(ROLES, ['cliente', 'admin_cancha', 'superadmin']);
+test('define los cuatro roles soportados', () => {
+  assert.deepEqual(ROLES, ['cliente', 'admin_cancha', 'subadmin', 'superadmin']);
 });
 
 test('requireAuth rechaza una solicitud sin sesión', async () => {
@@ -45,6 +45,20 @@ test('requireAuth deja pasar al administrador de cancha', async () => {
     await requireAuth(['admin_cancha', 'superadmin'])(req, response(), () => { called = true; });
     assert.equal(called, true);
     assert.equal(req.user.role, 'admin_cancha');
+  } finally {
+    auth.api.getSession = original;
+  }
+});
+
+test('requireAuth deja pasar al subadministrador', async () => {
+  const original = auth.api.getSession;
+  auth.api.getSession = async () => ({ user: { id: 'subadmin-1', email: 'subadmin@example.com', role: 'subadmin' } });
+  try {
+    const req = { headers: {} };
+    let called = false;
+    await requireAuth(['admin_cancha', 'subadmin', 'superadmin'])(req, response(), () => { called = true; });
+    assert.equal(called, true);
+    assert.equal(req.user.role, 'subadmin');
   } finally {
     auth.api.getSession = original;
   }
@@ -104,6 +118,50 @@ test('rechaza horarios superpuestos sin confundir turnos contiguos', () => {
     validateScheduleSlots([...valid, { dayOfWeek: 1, start: '18:30', end: '19:30', price: 10000 }]),
     { error: 'Los horarios de un mismo día no pueden superponerse' },
   );
+});
+
+test('acepta el último turno hasta medianoche sin habilitar turnos de la madrugada', () => {
+  const now = new Date('2026-08-19T12:00:00-03:00');
+  const reservation = validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '23:00-00:00', cancha_id: 7 }, now);
+  assert.equal(reservation.error, undefined);
+  assert.equal(validateReservation({ nombre: 'Ana Pérez', telefono: '1155555555', fecha: '2026-08-20', hora: '22:00-01:00', cancha_id: 7 }, now).error, 'Nombre, teléfono, fecha u horario inválido');
+  assert.equal(validateScheduleSlots([
+    { dayOfWeek: 1, start: '22:00', end: '23:00', price: 10000 },
+    { dayOfWeek: 1, start: '23:00', end: '00:00', price: 10000 },
+  ]), null);
+  assert.deepEqual(
+    validateScheduleSlots([
+      { dayOfWeek: 1, start: '22:30', end: '00:00', price: 10000 },
+      { dayOfWeek: 1, start: '23:00', end: '00:00', price: 10000 },
+    ]),
+    { error: 'Los horarios de un mismo día no pueden superponerse' },
+  );
+});
+
+test('confirma la reserva al acreditar un pago y repara una acreditación repetida', async () => {
+  const calls = [];
+  const pendingPayment = { id: 44, estado: 'pendiente', reserva_id: 9, recurrencia_id: null };
+  const client = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT * FROM pagos_reserva')) return { rows: [pendingPayment] };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  const database = { connect: async () => client };
+  const localPayment = { ...pendingPayment, monto_ars: 3000 };
+  const providerPayment = { id: 'mp-1', external_reference: '44', transaction_amount: 3000, status: 'approved' };
+
+  assert.equal(await applyProviderPayment(localPayment, providerPayment, database), 'aprobado');
+  assert.ok(calls.some(({ sql, params }) => sql.includes('UPDATE pagos_reserva') && params[0] === 'aprobado'));
+  assert.ok(calls.some(({ sql, params }) => sql.includes("WHERE id=$1 AND estado IN ('pendiente_pago', 'expirada')") && params[0] === 9));
+
+  calls.length = 0;
+  pendingPayment.estado = 'aprobado';
+  assert.equal(await applyProviderPayment(localPayment, providerPayment, database), 'aprobado');
+  assert.equal(calls.some(({ sql }) => sql.includes('UPDATE pagos_reserva')), false);
+  assert.ok(calls.some(({ sql, params }) => sql.includes("WHERE id=$1 AND estado IN ('pendiente_pago', 'expirada')") && params[0] === 9));
 });
 
 test('el cliente puede cancelar hasta dos horas antes del turno', () => {

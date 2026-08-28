@@ -56,6 +56,13 @@ test('clasifica y ordena próximos e historial por fecha y final del turno', () 
   assert.equal(isBookingUpcoming(bookings[0], new Date('2026-09-01T02:00:00.000Z')), false);
 });
 
+test('considera que un turno que termina a medianoche finaliza al día siguiente', () => {
+  const booking = { id: 1, fecha: '2026-08-31', hora: '23:00-00:00', estado: 'confirmada' };
+  assert.equal(getBookingEndAt(booking).toISOString(), '2026-09-01T03:00:00.000Z');
+  assert.equal(isBookingUpcoming(booking, new Date('2026-09-01T02:30:00.000Z')), true);
+  assert.equal(isBookingUpcoming(booking, new Date('2026-09-01T03:00:00.000Z')), false);
+});
+
 test('no muestra en la agenda las reservas ocultas del historial', () => {
   const sections = getAdminBookingSections([
     { id: 1, fecha: '2026-08-31', hora: '18:00-19:00', estado: 'cancelada', historial_oculto_at: '2026-09-01T00:00:00Z' },

@@ -3,6 +3,7 @@ import { upload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CalendarPicker } from "./CalendarPicker";
+import { TimePicker } from "./TimePicker";
 import { Icon, PitchMark } from "./icons";
 import { authClient } from "./authClient";
 import { apiFetch, readApiResponse } from "./api";
@@ -250,11 +251,12 @@ function SlotEditor({ court, request, readOnly = false }) {
     };
     const startMinutes = minutes(quickSchedule.start);
     const endMinutes = minutes(quickSchedule.end);
+    const normalizedEndMinutes = endMinutes === 0 && startMinutes > 0 ? 24 * 60 : endMinutes;
     const duration = Number(quickSchedule.duration);
     const price = Number(quickSchedule.price);
     if (
       !quickSchedule.days.length ||
-      endMinutes <= startMinutes ||
+      normalizedEndMinutes <= startMinutes ||
       !Number.isInteger(duration) ||
       duration < 15 ||
       !Number.isFinite(price) ||
@@ -264,16 +266,18 @@ function SlotEditor({ court, request, readOnly = false }) {
         "Elegí días, un rango válido, duración y precio.",
         "error",
       );
-    if ((endMinutes - startMinutes) % duration !== 0)
+    if ((normalizedEndMinutes - startMinutes) % duration !== 0)
       return showMessage(
         "El horario final debe coincidir con la duración del turno.",
         "error",
       );
-    const formatTime = (value) =>
-      `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+    const formatTime = (value) => {
+      const normalized = value % (24 * 60);
+      return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
+    };
     const generated = quickSchedule.days.flatMap((dayOfWeek) =>
       Array.from(
-        { length: (endMinutes - startMinutes) / duration },
+        { length: (normalizedEndMinutes - startMinutes) / duration },
         (_, index) => ({
           dayOfWeek,
           start: formatTime(startMinutes + index * duration),
@@ -401,26 +405,26 @@ function SlotEditor({ court, request, readOnly = false }) {
           <div className="quick-schedule__fields">
             <label>
               Desde
-              <Input
-                type="time"
+              <TimePicker
+                label="Hora de inicio del horario habitual"
                 value={quickSchedule.start}
-                onChange={(event) =>
+                onChange={(start) =>
                   setQuickSchedule({
                     ...quickSchedule,
-                    start: event.target.value,
+                    start,
                   })
                 }
               />
             </label>
             <label>
               Hasta
-              <Input
-                type="time"
+              <TimePicker
+                label="Hora de finalización del horario habitual"
                 value={quickSchedule.end}
-                onChange={(event) =>
+                onChange={(end) =>
                   setQuickSchedule({
                     ...quickSchedule,
-                    end: event.target.value,
+                    end,
                   })
                 }
               />
@@ -483,20 +487,20 @@ function SlotEditor({ court, request, readOnly = false }) {
                   </option>
                 ))}
               </select>
-              <Input
+              <TimePicker
                 aria-label="Hora inicial"
-                type="time"
+                label="Hora inicial"
                 value={slot.start}
-                onChange={(event) =>
-                  updateSlot(index, "start", event.target.value)
+                onChange={(start) =>
+                  updateSlot(index, "start", start)
                 }
               />
-              <Input
+              <TimePicker
                 aria-label="Hora final"
-                type="time"
+                label="Hora final"
                 value={slot.end}
-                onChange={(event) =>
-                  updateSlot(index, "end", event.target.value)
+                onChange={(end) =>
+                  updateSlot(index, "end", end)
                 }
               />
               <Input
@@ -551,20 +555,18 @@ function SlotEditor({ court, request, readOnly = false }) {
               value={exception.fecha}
               onChange={(fecha) => setException({ ...exception, fecha })}
             />
-            <Input
-              type="time"
-              required
+            <TimePicker
+              label="Hora inicial de la excepción"
               value={exception.start}
-              onChange={(event) =>
-                setException({ ...exception, start: event.target.value })
+              onChange={(start) =>
+                setException({ ...exception, start })
               }
             />
-            <Input
-              type="time"
-              required
+            <TimePicker
+              label="Hora final de la excepción"
               value={exception.end}
-              onChange={(event) =>
-                setException({ ...exception, end: event.target.value })
+              onChange={(end) =>
+                setException({ ...exception, end })
               }
             />
             <Input
@@ -740,7 +742,7 @@ function ComplexFields({ value, onChange, disabled = false }) {
   );
 }
 
-function CourtFields({ value, onChange, disabled = false }) {
+function CourtFields({ value, onChange, disabled = false, canManageFinances = true }) {
   const update = (field, next) => onChange({ ...value, [field]: next });
   return (
     <>
@@ -787,15 +789,17 @@ function CourtFields({ value, onChange, disabled = false }) {
         />{" "}
         Indoor
       </label>
-      <label className="admin-checkbox">
-        <input
-          disabled={disabled}
-          type="checkbox"
-          checked={value.requiere_sena !== false}
-          onChange={(event) => update("requiere_sena", event.target.checked)}
-        />{" "}
-        Exigir seña
-      </label>
+      {canManageFinances && (
+        <label className="admin-checkbox">
+          <input
+            disabled={disabled}
+            type="checkbox"
+            checked={value.requiere_sena !== false}
+            onChange={(event) => update("requiere_sena", event.target.checked)}
+          />{" "}
+          Exigir seña
+        </label>
+      )}
     </>
   );
 }
@@ -1024,8 +1028,7 @@ function MercadoPagoSettings({ complex, request, readOnly = false }) {
   );
 }
 
-function ComplexesManager({ complexes, reload, request }) {
-  const { data: session } = useSessionWithFallback();
+function ComplexesManager({ complexes, reload, request, adminAccess }) {
   const [complexForm, setComplexForm] = useState(emptyComplex);
   const [firstCourt, setFirstCourt] = useState(emptyCourt);
   const [createPhoto, setCreatePhoto] = useState(null);
@@ -1065,7 +1068,9 @@ function ComplexesManager({ complexes, reload, request }) {
   const activeComplex =
     complexes.find((item) => item.id === selectedComplex?.id) ||
     selectedComplex;
-  const isSuperadmin = session?.user?.role === "superadmin";
+  const isSuperadmin = adminAccess?.type === "superadmin";
+  const canManageFinances = Boolean(adminAccess?.can_manage_finances);
+  const canDeleteStructure = Boolean(adminAccess?.can_delete_structure);
   const creationReadOnly =
     !isSuperadmin &&
     complexes.some((complex) => complex.suspendido_suscripcion);
@@ -1075,6 +1080,11 @@ function ComplexesManager({ complexes, reload, request }) {
     setMessageType(type);
     setMessage(text);
   };
+  const courtPayload = (court) => {
+    if (canManageFinances) return court;
+    const { requiere_sena: _requiereSena, ...operationalCourt } = court;
+    return operationalCourt;
+  };
   const createComplex = async (event) => {
     event.preventDefault();
     setSaving(true);
@@ -1082,7 +1092,7 @@ function ComplexesManager({ complexes, reload, request }) {
       const foto_url = createPhoto ? await uploadComplexPhoto(createPhoto) : "";
       const created = await request("/api/admin/complejos", {
         method: "POST",
-        body: JSON.stringify({ ...complexForm, foto_url, cancha: firstCourt }),
+        body: JSON.stringify({ ...complexForm, foto_url, cancha: courtPayload(firstCourt) }),
       });
       const court = created.canchas[0];
       await request(`/api/admin/canchas/${court.id}/horarios`, {
@@ -1151,7 +1161,7 @@ function ComplexesManager({ complexes, reload, request }) {
     try {
       const court = await request(
         `/api/admin/complejos/${activeComplex.id}/canchas`,
-        { method: "POST", body: JSON.stringify(newCourt) },
+        { method: "POST", body: JSON.stringify(courtPayload(newCourt)) },
       );
       await request(`/api/admin/canchas/${court.id}/horarios`, {
         method: "PUT",
@@ -1169,7 +1179,7 @@ function ComplexesManager({ complexes, reload, request }) {
     try {
       await request(`/api/admin/canchas/${selectedCourt.id}`, {
         method: "PATCH",
-        body: JSON.stringify(courtEdit),
+        body: JSON.stringify(courtPayload(courtEdit)),
       });
       await reload();
       show("Datos de la cancha actualizados.");
@@ -1244,6 +1254,7 @@ function ComplexesManager({ complexes, reload, request }) {
             value={firstCourt}
             onChange={setFirstCourt}
             disabled={creationReadOnly}
+            canManageFinances={canManageFinances}
           />
         </div>
         <Button type="submit" disabled={saving || creationReadOnly}>
@@ -1319,16 +1330,18 @@ function ComplexesManager({ complexes, reload, request }) {
                 <h3>Editar {activeComplex.nombre}</h3>
                 <p>Actualizá los datos que comparten sus canchas.</p>
               </div>
-              <Button
-                className="admin-danger"
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={deleteComplex}
-                disabled={complexReadOnly || saving}
-              >
-                Eliminar complejo
-              </Button>
+              {canDeleteStructure && (
+                <Button
+                  className="admin-danger"
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={deleteComplex}
+                  disabled={complexReadOnly || saving}
+                >
+                  Eliminar complejo
+                </Button>
+              )}
             </div>
             <div className="admin-complex-fields">
               <ComplexFields
@@ -1355,12 +1368,14 @@ function ComplexesManager({ complexes, reload, request }) {
               Guardar complejo
             </Button>
           </form>
-          <MercadoPagoSettings
-            key={activeComplex.id}
-            complex={activeComplex}
-            request={request}
-            readOnly={complexReadOnly}
-          />
+          {canManageFinances && (
+            <MercadoPagoSettings
+              key={activeComplex.id}
+              complex={activeComplex}
+              request={request}
+              readOnly={complexReadOnly}
+            />
+          )}
           <section className="admin-courts-panel">
             <div className="admin-courts-panel__heading">
               <h3>Canchas del complejo</h3>
@@ -1379,6 +1394,7 @@ function ComplexesManager({ complexes, reload, request }) {
                   value={newCourt}
                   onChange={setNewCourt}
                   disabled={complexReadOnly}
+                  canManageFinances={canManageFinances}
                 />
               </div>
               <Button type="submit" disabled={complexReadOnly}>
@@ -1400,13 +1416,15 @@ function ComplexesManager({ complexes, reload, request }) {
                       {court.deporte} ·{" "}
                       {court.indoor ? "Indoor" : "A cielo abierto"}
                     </small>
-                    <span
-                      className={`admin-court-card__deposit${court.requiere_sena === false ? " is-free" : ""}`}
-                    >
-                      {court.requiere_sena === false
-                        ? "Sin seña"
-                        : "Seña requerida"}
-                    </span>
+                    {canManageFinances && (
+                      <span
+                        className={`admin-court-card__deposit${court.requiere_sena === false ? " is-free" : ""}`}
+                      >
+                        {court.requiere_sena === false
+                          ? "Sin seña"
+                          : "Seña requerida"}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -1424,22 +1442,25 @@ function ComplexesManager({ complexes, reload, request }) {
                         Datos, horarios, precios y excepciones de esta cancha.
                       </p>
                     </div>
-                    <Button
-                      className="admin-danger"
-                      variant="secondary"
-                      size="sm"
-                      type="button"
-                      onClick={deleteCourt}
-                      disabled={complexReadOnly}
-                    >
-                      Eliminar cancha
-                    </Button>
+                    {canDeleteStructure && (
+                      <Button
+                        className="admin-danger"
+                        variant="secondary"
+                        size="sm"
+                        type="button"
+                        onClick={deleteCourt}
+                        disabled={complexReadOnly}
+                      >
+                        Eliminar cancha
+                      </Button>
+                    )}
                   </div>
                   <div className="admin-court-fields">
                     <CourtFields
                       value={courtEdit}
                       onChange={setCourtEdit}
                       disabled={complexReadOnly}
+                      canManageFinances={canManageFinances}
                     />
                   </div>
                   <Button
@@ -1557,6 +1578,93 @@ function SuperadminManager({ admins, request, reload }) {
             )}
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function SubadminManager({ subadmins, request, reload }) {
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const invite = async (event) => {
+    event.preventDefault();
+    setMessage("");
+    try {
+      const result = await request("/api/admin/subadmins", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      setEmail("");
+      setMessage(result.estado === "activo"
+        ? "El subadministrador ya tiene acceso al panel."
+        : "Invitación creada. Tendrá acceso cuando ingrese con Google.");
+      await reload();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+  const revoke = async (member) => {
+    const action = member.estado === "pendiente" ? "cancelar esta invitación" : "quitar el acceso a este subadministrador";
+    if (!window.confirm(`¿Querés ${action}?`)) return;
+    setBusyId(member.id);
+    setMessage("");
+    try {
+      await request(`/api/admin/subadmins/${member.id}`, { method: "DELETE" });
+      await reload();
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+  return (
+    <section className="admin-bookings-section">
+      <div className="admin-section-heading">
+        <div>
+          <h2>Equipo</h2>
+          <p>Delegá la operación diaria sin compartir pagos, señas ni suscripción.</p>
+        </div>
+      </div>
+      <form className="admin-form admin-form--inline" onSubmit={invite}>
+        <Input
+          type="email"
+          required
+          placeholder="correo@ejemplo.com"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <Button type="submit">Agregar subadmin</Button>
+      </form>
+      {message && (
+        <p className={message.includes("acceso") || message.includes("Invitación") ? "form-success" : "form-error"} role="status">
+          {message}
+        </p>
+      )}
+      <div className="admin-access-list">
+        {subadmins.length ? subadmins.map((member) => (
+          <div key={member.id} className="admin-access-row">
+            <div>
+              <strong>{member.name}</strong>
+              <small>{member.email}</small>
+            </div>
+            <span>{member.estado === "pendiente" ? "Pendiente de ingreso" : "Subadmin activo"}</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              disabled={busyId === member.id}
+              onClick={() => revoke(member)}
+            >
+              {member.estado === "pendiente" ? "Cancelar" : "Quitar acceso"}
+            </Button>
+          </div>
+        )) : (
+          <div className="admin-team-empty">
+            <Icon name="users" size={20} />
+            <div><strong>Tu equipo todavía está vacío</strong><p>Agregá una persona para que gestione reservas y canchas.</p></div>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1950,6 +2058,8 @@ export default function PanelAdmin() {
   const [bookings, setBookings] = useState([]);
   const [complexes, setComplexes] = useState([]);
   const [admins, setAdmins] = useState([]);
+  const [subadmins, setSubadmins] = useState([]);
+  const [adminAccess, setAdminAccess] = useState(null);
   const [filterDate, setFilterDate] = useState("");
   const [agendaNow, setAgendaNow] = useState(() => new Date());
   const [calendarTab, setCalendarTab] = useState("upcoming");
@@ -1970,6 +2080,8 @@ export default function PanelAdmin() {
     setComplexes(nextComplexes);
     if (profile?.role === "superadmin")
       setAdmins(await request("/api/superadmin/admins"));
+    if (profile?.role === "admin_cancha")
+      setSubadmins(await request("/api/admin/subadmins"));
   }, [profile?.role, request]);
   useEffect(() => {
     if (!sessionUserId) return undefined;
@@ -1981,6 +2093,7 @@ export default function PanelAdmin() {
         if (active) {
           setProfile(data.user);
           setSubscription(data.suscripcion);
+          setAdminAccess(data.admin_access);
         }
       })
       .catch((requestError) => {
@@ -2086,15 +2199,18 @@ export default function PanelAdmin() {
       />
     );
   const isSuperadmin = profile.role === "superadmin";
+  const isOwnerAdmin = Boolean(adminAccess?.can_manage_team);
+  const canManageFinances = Boolean(adminAccess?.can_manage_finances);
   const navItems = [
     ["overview", "Resumen", "home"],
     ["calendar", "Calendario", "calendar"],
     ["complexes", "Complejos", "pitch"],
-    ["subscriptions", "Suscripciones", "spark"],
+    ...(canManageFinances ? [["subscriptions", "Suscripciones", "spark"]] : []),
+    ...(isOwnerAdmin ? [["subadmins", "Equipo", "users"]] : []),
     ...(isSuperadmin ? [["admins", "Administradores", "user"]] : []),
   ];
   const attention =
-    !isSuperadmin &&
+    !isSuperadmin && canManageFinances &&
     ["en_gracia", "vencida", "anulada", "sin_suscripcion"].includes(
       subscription?.estado,
     )
@@ -2162,7 +2278,7 @@ export default function PanelAdmin() {
             <div>
               <strong>{profile.name}</strong>
               <small>
-                {isSuperadmin ? "Superadministrador" : "Administrador"}
+                {isSuperadmin ? "Superadministrador" : profile.role === "subadmin" ? "Subadministrador" : "Administrador"}
               </small>
             </div>
           </div>
@@ -2312,10 +2428,14 @@ export default function PanelAdmin() {
             complexes={complexes}
             reload={reload}
             request={request}
+            adminAccess={adminAccess}
           />
         )}
-        {activeSection === "subscriptions" && (
+        {activeSection === "subscriptions" && canManageFinances && (
           <SubscriptionManager isSuperadmin={isSuperadmin} request={request} />
+        )}
+        {activeSection === "subadmins" && isOwnerAdmin && (
+          <SubadminManager subadmins={subadmins} request={request} reload={reload} />
         )}
         {activeSection === "admins" && isSuperadmin && (
           <SuperadminManager

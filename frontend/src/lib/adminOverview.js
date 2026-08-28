@@ -41,6 +41,11 @@ function parseBookingTime(booking, end = false) {
   const value = end ? finish : start;
   if (!/^\d{2}:\d{2}$/.test(value) || !/^\d{4}-\d{2}-\d{2}$/.test(booking?.fecha || '')) return null;
   const result = new Date(`${booking.fecha}T${value}:00-03:00`);
+  if (end && /^\d{2}:\d{2}$/.test(start)) {
+    const startMinutes = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5));
+    const endMinutes = Number(finish.slice(0, 2)) * 60 + Number(finish.slice(3, 5));
+    if (endMinutes <= startMinutes) result.setUTCDate(result.getUTCDate() + 1);
+  }
   return Number.isNaN(result.getTime()) ? null : result;
 }
 

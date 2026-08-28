@@ -54,7 +54,11 @@ function validSlot(value) {
   if (typeof value !== 'string') return false;
   const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/);
   if (!match) return false;
-  return match[1] + match[2] < match[3] + match[4];
+  const startMinutes = Number(match[1]) * 60 + Number(match[2]);
+  const endMinutes = Number(match[3]) * 60 + Number(match[4]);
+  // Un turno puede cerrar exactamente a medianoche, pero no continuar sobre
+  // el día siguiente: 23:00-00:00 sí; 22:00-01:00 no.
+  return endMinutes > startMinutes || (endMinutes === 0 && startMinutes > 0);
 }
 
 function parseSlot(value) {
@@ -74,6 +78,9 @@ function reservationEndAt(fecha, hora) {
   const slot = parseSlot(hora);
   if (!slot) return null;
   const date = new Date(`${fecha}T${slot.end}:00-03:00`);
+  const startMinutes = Number(slot.start.slice(0, 2)) * 60 + Number(slot.start.slice(3, 5));
+  const endMinutes = Number(slot.end.slice(0, 2)) * 60 + Number(slot.end.slice(3, 5));
+  if (endMinutes <= startMinutes) date.setUTCDate(date.getUTCDate() + 1);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -105,7 +112,8 @@ function validateScheduleSlots(slots) {
       return { error: 'Hay un día, horario o precio inválido' };
     }
     const startMinutes = Number(parsed.start.slice(0, 2)) * 60 + Number(parsed.start.slice(3, 5));
-    const endMinutes = Number(parsed.end.slice(0, 2)) * 60 + Number(parsed.end.slice(3, 5));
+    const rawEndMinutes = Number(parsed.end.slice(0, 2)) * 60 + Number(parsed.end.slice(3, 5));
+    const endMinutes = rawEndMinutes === 0 ? 24 * 60 : rawEndMinutes;
     const daySlots = byDay.get(dayOfWeek) || [];
     daySlots.push({ startMinutes, endMinutes });
     byDay.set(dayOfWeek, daySlots);
@@ -225,6 +233,43 @@ function requiresReservationPayment(court, userId) {
   return court.requiere_sena !== false && court.complejo_owner_user_id !== userId;
 }
 
+function managedOwnerId(req) {
+  return req.adminAccess?.ownerUserId || req.user.id;
+}
+
+function isSubadmin(req) {
+  return req.adminAccess?.type === 'subadmin';
+}
+
+function requireFinancialAdmin(req, res, next) {
+  if (!req.adminAccess?.canManageFinances) {
+    return res.status(403).json({ error: 'Solo el administrador titular puede gestionar señas, Mercado Pago y suscripción' });
+  }
+  return next();
+}
+
+function requireStructureDelete(req, res, next) {
+  if (!req.adminAccess?.canDeleteStructure) {
+    return res.status(403).json({ error: 'Solo el administrador titular puede eliminar complejos o canchas' });
+  }
+  return next();
+}
+
+function requireTeamAdmin(req, res, next) {
+  if (!req.adminAccess?.canManageTeam) {
+    return res.status(403).json({ error: 'Solo el administrador titular puede gestionar subadministradores' });
+  }
+  return next();
+}
+
+function protectDepositField(req, res, next) {
+  const body = req.body || {};
+  if (isSubadmin(req) && (Object.hasOwn(body, 'requiere_sena') || Object.hasOwn(body.cancha || {}, 'requiere_sena'))) {
+    return res.status(403).json({ error: 'Los subadministradores no pueden modificar la configuración de señas' });
+  }
+  return next();
+}
+
 async function courtAccess(req, res, next) {
   try {
     const { rows } = await pool.query(
@@ -236,7 +281,7 @@ async function courtAccess(req, res, next) {
     );
     const court = rows[0];
     if (!court) return res.status(404).json({ error: 'Cancha no encontrada' });
-    if (req.user.role !== 'superadmin' && court.complejo_owner_user_id !== req.user.id) {
+    if (req.user.role !== 'superadmin' && court.complejo_owner_user_id !== managedOwnerId(req)) {
       return res.status(403).json({ error: 'No tenés acceso a esta cancha' });
     }
     req.court = court;
@@ -251,7 +296,7 @@ async function complexAccess(req, res, next) {
     const { rows } = await pool.query('SELECT * FROM complejos WHERE id = $1', [req.params.id]);
     const complex = rows[0];
     if (!complex) return res.status(404).json({ error: 'Complejo no encontrado' });
-    if (req.user.role !== 'superadmin' && complex.owner_user_id !== req.user.id) {
+    if (req.user.role !== 'superadmin' && complex.owner_user_id !== managedOwnerId(req)) {
       return res.status(403).json({ error: 'No tenés acceso a este complejo' });
     }
     req.complex = complex;
@@ -303,18 +348,44 @@ async function sellerAccessToken(complex, client = pool) {
   return refreshed.access_token;
 }
 
-async function applyProviderPayment(localPayment, providerPayment) {
+async function synchronizeReservationsForPayment(client, payment) {
+  if (payment.recurrencia_id) {
+    await client.query(
+      "UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE recurrencia_id=$1 AND estado IN ('pendiente_pago', 'expirada')",
+      [payment.recurrencia_id],
+    );
+  } else {
+    await client.query(
+      "UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE id=$1 AND estado IN ('pendiente_pago', 'expirada')",
+      [payment.reserva_id],
+    );
+  }
+}
+
+async function synchronizeApprovedReservations() {
+  await pool.query(
+    `UPDATE reservas r
+        SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL
+       FROM pagos_reserva p
+      WHERE p.estado='aprobado'
+        AND (p.reserva_id=r.id OR (p.recurrencia_id IS NOT NULL AND p.recurrencia_id=r.recurrencia_id))
+        AND r.estado IN ('pendiente_pago', 'expirada')`,
+  );
+}
+
+async function applyProviderPayment(localPayment, providerPayment, database = pool) {
   if (String(providerPayment.external_reference) !== String(localPayment.id) || Number(providerPayment.transaction_amount) !== Number(localPayment.monto_ars)) {
     throw new Error('El pago no coincide con la reserva');
   }
   const statusMap = { approved: 'aprobado', rejected: 'rechazado', cancelled: 'cancelado' };
   const nextStatus = statusMap[providerPayment.status] || 'pendiente';
-  const client = await pool.connect();
+  const client = await database.connect();
   try {
     await client.query('BEGIN');
     const locked = await client.query('SELECT * FROM pagos_reserva WHERE id=$1 FOR UPDATE', [localPayment.id]);
     const current = locked.rows[0];
     if (!current || current.estado !== 'pendiente') {
+      if (current?.estado === 'aprobado') await synchronizeReservationsForPayment(client, current);
       await client.query('COMMIT');
       return current?.estado || null;
     }
@@ -325,11 +396,7 @@ async function applyProviderPayment(localPayment, providerPayment) {
       [nextStatus, String(providerPayment.id), JSON.stringify(providerPayment), current.id],
     );
     if (nextStatus === 'aprobado') {
-      if (current.recurrencia_id) {
-        await client.query("UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE recurrencia_id=$1 AND estado IN ('pendiente_pago', 'expirada')", [current.recurrencia_id]);
-      } else {
-        await client.query("UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE id=$1 AND estado IN ('pendiente_pago', 'expirada')", [current.reserva_id]);
-      }
+      await synchronizeReservationsForPayment(client, current);
     } else if (nextStatus === 'rechazado' || nextStatus === 'cancelado') {
       if (current.recurrencia_id) {
         await client.query("UPDATE reservas SET estado='expirada', cancel_reason='Seña rechazada o cancelada' WHERE recurrencia_id=$1 AND estado='pendiente_pago'", [current.recurrencia_id]);
@@ -347,10 +414,10 @@ async function applyProviderPayment(localPayment, providerPayment) {
   }
 }
 
-async function reconcilePendingPayment(payment) {
+async function reconcilePendingPayment(payment, { force = false } = {}) {
   if (payment.estado !== 'pendiente' || !payment.mp_access_token) return;
   const checkedRecently = payment.consultado_mp_at && Date.now() - new Date(payment.consultado_mp_at).getTime() < 30_000;
-  if (checkedRecently) return;
+  if (checkedRecently && !force) return;
   try {
     const result = await searchPayments(await sellerAccessToken({ ...payment, id: payment.seller_id }), payment.id);
     const providerPayment = result.results?.[0];
@@ -364,7 +431,7 @@ async function reconcilePendingPayment(payment) {
   }
 }
 
-async function reconcilePendingPayments(limit = 50) {
+async function reconcilePendingPayments(limit = 50, options = {}) {
   const { rows } = await pool.query(
     `SELECT p.*, co.id AS seller_id, co.mp_access_token, co.mp_refresh_token, co.mp_token_expires_at
        FROM pagos_reserva p
@@ -375,7 +442,7 @@ async function reconcilePendingPayments(limit = 50) {
       LIMIT $1`,
     [limit],
   );
-  await Promise.allSettled(rows.map(reconcilePendingPayment));
+  await Promise.allSettled(rows.map((payment) => reconcilePendingPayment(payment, options)));
 }
 
 function appUrl() {
@@ -422,7 +489,7 @@ async function subscriptionRowForUser(userId, email, client = pool) {
 
 async function subscriptionForRequest(req, client = pool) {
   if (req.user.role === 'superadmin') return { superadmin: true, capabilities: { can_write: true, can_add_complex: true, can_add_court: true, can_receive_bookings: true } };
-  const subscription = await subscriptionRowForUser(req.user.id, req.user.email, client);
+  const subscription = await subscriptionRowForUser(managedOwnerId(req), req.adminAccess?.ownerEmail || req.user.email, client);
   return { subscription, capabilities: capabilitiesFor(subscription) };
 }
 
@@ -1264,7 +1331,8 @@ app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'superadmin'])
 
 app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
   try {
-    await reconcilePendingPayments();
+    await synchronizeApprovedReservations();
+    await reconcilePendingPayments(50, { force: true });
     await expirePendingReservations();
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars, r.recurrencia_id,
@@ -1383,8 +1451,97 @@ app.get('/api/pagos/:id', requireAuth(), async (req, res, next) => {
 app.get('/api/admin/session', requireAnyAdmin, async (req, res, next) => {
   try {
     const entitlement = await subscriptionForRequest(req);
-    res.json({ authenticated: true, user: req.user, suscripcion: publicSubscription(entitlement.subscription), capabilities: entitlement.capabilities });
+    res.json({
+      authenticated: true,
+      user: req.user,
+      admin_access: {
+        type: req.adminAccess.type,
+        can_manage_team: req.adminAccess.canManageTeam,
+        can_manage_finances: req.adminAccess.canManageFinances,
+        can_delete_structure: req.adminAccess.canDeleteStructure,
+      },
+      suscripcion: isSubadmin(req) ? null : publicSubscription(entitlement.subscription),
+      capabilities: entitlement.capabilities,
+    });
   } catch (error) { next(error); }
+});
+
+app.get('/api/admin/subadmins', requireAnyAdmin, requireTeamAdmin, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.id, a.email, a.created_at, a.accepted_at,
+              COALESCE(u.name, 'Pendiente') AS name, u.image,
+              CASE WHEN a.user_id IS NULL THEN 'pendiente' ELSE 'activo' END AS estado
+         FROM accesos_subadmin a
+         LEFT JOIN "user" u ON u.id=a.user_id
+        WHERE a.owner_user_id=$1
+        ORDER BY a.created_at DESC`,
+      [managedOwnerId(req)],
+    );
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/subadmins', requireAnyAdmin, requireTeamAdmin, async (req, res, next) => {
+  const email = cleanText(req.body?.email, 254).toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Email inválido' });
+  if (email === String(req.user.email || '').toLowerCase()) return res.status(400).json({ error: 'No podés agregarte como subadministrador' });
+  if (email === String(process.env.SUPERADMIN_EMAIL || '').trim().toLowerCase()) return res.status(409).json({ error: 'Ese email está reservado para el superadministrador' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const [existingAccess, adminInvite, existingUser] = await Promise.all([
+      client.query('SELECT id FROM accesos_subadmin WHERE lower(email)=lower($1) FOR UPDATE', [email]),
+      client.query('SELECT id FROM invitaciones_admin WHERE lower(email)=lower($1) FOR UPDATE', [email]),
+      client.query('SELECT id, role FROM "user" WHERE lower(email)=lower($1) FOR UPDATE', [email]),
+    ]);
+    if (existingAccess.rowCount) throw Object.assign(new Error('Ese email ya tiene acceso como subadministrador'), { status: 409, expose: true });
+    if (adminInvite.rowCount || ['admin_cancha', 'superadmin'].includes(existingUser.rows[0]?.role)) {
+      throw Object.assign(new Error('Ese email ya pertenece a un administrador titular o tiene una invitación de administrador'), { status: 409, expose: true });
+    }
+    const person = existingUser.rows[0];
+    const { rows } = await client.query(
+      `INSERT INTO accesos_subadmin (owner_user_id, user_id, email, accepted_at)
+       VALUES ($1,$2,$3,CASE WHEN $2::text IS NULL THEN NULL ELSE NOW() END)
+       RETURNING id, email, created_at, accepted_at`,
+      [managedOwnerId(req), person?.id || null, email],
+    );
+    if (person) await client.query("UPDATE \"user\" SET role='subadmin' WHERE id=$1 AND role='cliente'", [person.id]);
+    await client.query('COMMIT');
+    res.status(201).json({ ...rows[0], name: person ? 'Acceso activo' : 'Pendiente', estado: person ? 'activo' : 'pendiente' });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+app.delete('/api/admin/subadmins/:id', requireAnyAdmin, requireTeamAdmin, async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'Subadministrador inválido' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      'SELECT id, user_id, email FROM accesos_subadmin WHERE id=$1 AND owner_user_id=$2 FOR UPDATE',
+      [id, managedOwnerId(req)],
+    );
+    const access = result.rows[0];
+    if (!access) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Subadministrador no encontrado' });
+    }
+    if (access.user_id) await client.query("UPDATE \"user\" SET role='cliente' WHERE id=$1 AND role='subadmin'", [access.user_id]);
+    await client.query('DELETE FROM accesos_subadmin WHERE id=$1', [access.id]);
+    await client.query('COMMIT');
+    res.status(204).end();
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
+  }
 });
 
 app.get('/api/superadmin/suscripciones', requireAuth(['superadmin']), async (req, res, next) => {
@@ -1444,7 +1601,7 @@ app.post('/api/superadmin/suscripciones/:id/anular', requireAuth(['superadmin'])
   } catch (error) { return next(error); }
 });
 
-app.get('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, complexAccess, (req, res) => {
+app.get('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireFinancialAdmin, complexAccess, (req, res) => {
   res.json({
     sena_porcentaje: req.complex.sena_porcentaje || 10,
     conectado: Boolean(req.complex.mp_access_token),
@@ -1452,7 +1609,7 @@ app.get('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, complexAccess, 
   });
 });
 
-app.patch('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, async (req, res, next) => {
+app.patch('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireFinancialAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, async (req, res, next) => {
   const percentage = Number(req.body?.sena_porcentaje);
   if (!Number.isInteger(percentage) || percentage < 1 || percentage > 100) {
     return res.status(400).json({ error: 'El porcentaje de seña debe estar entre 1 y 100' });
@@ -1468,7 +1625,7 @@ app.patch('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireSubscr
   }
 });
 
-app.get('/api/admin/complejos/:id/mercadopago/conectar', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, (req, res, next) => {
+app.get('/api/admin/complejos/:id/mercadopago/conectar', requireAnyAdmin, requireFinancialAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, (req, res, next) => {
   try {
     const state = signedState({ complexId: req.complex.id, userId: req.user.id, expiresAt: Date.now() + 10 * 60_000 });
     res.redirect(authorizationUrl(state));
@@ -1477,7 +1634,7 @@ app.get('/api/admin/complejos/:id/mercadopago/conectar', requireAnyAdmin, requir
   }
 });
 
-app.delete('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, async (req, res, next) => {
+app.delete('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireFinancialAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, async (req, res, next) => {
   try {
     const pending = await pool.query(
       "SELECT 1 FROM pagos_reserva WHERE complejo_id=$1 AND estado='pendiente' AND expira_at > NOW() LIMIT 1",
@@ -1491,7 +1648,7 @@ app.delete('/api/admin/complejos/:id/mercadopago', requireAnyAdmin, requireSubsc
   }
 });
 
-app.get('/api/pagos/mercadopago/oauth/callback', requireAnyAdmin, async (req, res, next) => {
+app.get('/api/pagos/mercadopago/oauth/callback', requireAnyAdmin, requireFinancialAdmin, async (req, res, next) => {
   try {
     if (!req.query.code || !req.query.state) throw new Error('Mercado Pago no devolvió una autorización válida');
     const state = readSignedState(req.query.state);
@@ -1576,7 +1733,7 @@ app.get('/api/admin/complejos', requireAnyAdmin, async (req, res, next) => {
   try {
     const params = [];
     const filter = req.user.role === 'superadmin' ? '' : 'WHERE co.owner_user_id = $1';
-    if (req.user.role !== 'superadmin') params.push(req.user.id);
+    if (req.user.role !== 'superadmin') params.push(managedOwnerId(req));
     const { rows } = await pool.query(
       `SELECT co.id, co.owner_user_id, co.nombre, co.ciudad, co.provincia, co.direccion,
               co.whatsapp, co.descripcion, co.foto_url, co.activo, co.suspendido_suscripcion, co.sena_porcentaje,
@@ -1602,13 +1759,19 @@ app.get('/api/admin/complejos', requireAnyAdmin, async (req, res, next) => {
         ORDER BY co.nombre`,
       params,
     );
-    res.json(rows);
+    const visibleRows = isSubadmin(req)
+      ? rows.map(({ sena_porcentaje, canchas, ...complex }) => ({
+        ...complex,
+        canchas: canchas.map(({ requiere_sena, ...court }) => court),
+      }))
+      : rows;
+    res.json(visibleRows);
   } catch (error) {
     next(error);
   }
 });
 
-app.post('/api/admin/complejos', requireAnyAdmin, requireSubscriptionComplexCapacity, async (req, res, next) => {
+app.post('/api/admin/complejos', requireAnyAdmin, protectDepositField, requireSubscriptionComplexCapacity, async (req, res, next) => {
   const complex = validateComplex(req.body || {});
   const court = validateCourt(req.body?.cancha || {});
   if (complex.error) return res.status(400).json(complex);
@@ -1619,13 +1782,13 @@ app.post('/api/admin/complejos', requireAnyAdmin, requireSubscriptionComplexCapa
     const complexResult = await client.query(
       `INSERT INTO complejos (owner_user_id, nombre, ciudad, provincia, direccion, whatsapp, descripcion, foto_url)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.user.id, complex.nombre, complex.ciudad, complex.provincia, complex.direccion, complex.whatsapp, complex.descripcion, complex.fotoUrl],
+      [managedOwnerId(req), complex.nombre, complex.ciudad, complex.provincia, complex.direccion, complex.whatsapp, complex.descripcion, complex.fotoUrl],
     );
     const createdComplex = complexResult.rows[0];
     const courtResult = await client.query(
       `INSERT INTO canchas (owner_user_id, complejo_id, nombre, deporte, descripcion, indoor, requiere_sena, barrio, ciudad, provincia, direccion, whatsapp, tipo)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$4) RETURNING *`,
-      [req.user.id, createdComplex.id, court.nombre, court.deporte, court.descripcion, court.indoor, court.requiereSena,
+      [managedOwnerId(req), createdComplex.id, court.nombre, court.deporte, court.descripcion, court.indoor, court.requiereSena,
         complex.ciudad, complex.provincia, complex.direccion, complex.whatsapp],
     );
     await client.query('COMMIT');
@@ -1663,7 +1826,7 @@ app.patch('/api/admin/complejos/:id', requireAnyAdmin, requireSubscriptionWrite,
   }
 });
 
-app.delete('/api/admin/complejos/:id', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, async (req, res, next) => {
+app.delete('/api/admin/complejos/:id', requireAnyAdmin, requireStructureDelete, requireSubscriptionWrite, complexAccess, requireWritableComplex, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1690,7 +1853,7 @@ app.delete('/api/admin/complejos/:id', requireAnyAdmin, requireSubscriptionWrite
   }
 });
 
-app.post('/api/admin/complejos/:id/canchas', requireAnyAdmin, requireSubscriptionCourtCapacity, complexAccess, requireWritableComplex, async (req, res, next) => {
+app.post('/api/admin/complejos/:id/canchas', requireAnyAdmin, protectDepositField, requireSubscriptionCourtCapacity, complexAccess, requireWritableComplex, async (req, res, next) => {
   const court = validateCourt(req.body || {});
   if (court.error) return res.status(400).json(court);
   try {
@@ -1711,8 +1874,10 @@ app.get('/api/admin/canchas', requireAnyAdmin, async (req, res, next) => {
     const query = req.user.role === 'superadmin'
       ? 'SELECT c.*, co.nombre AS complejo_nombre FROM canchas c JOIN complejos co ON co.id = c.complejo_id ORDER BY co.nombre, c.nombre'
       : 'SELECT c.*, co.nombre AS complejo_nombre FROM canchas c JOIN complejos co ON co.id = c.complejo_id WHERE co.owner_user_id = $1 ORDER BY co.nombre, c.nombre';
-    const result = await pool.query(query, req.user.role === 'superadmin' ? [] : [req.user.id]);
-    res.json(result.rows);
+    const result = await pool.query(query, req.user.role === 'superadmin' ? [] : [managedOwnerId(req)]);
+    res.json(isSubadmin(req)
+      ? result.rows.map(({ requiere_sena, ...court }) => court)
+      : result.rows);
   } catch (error) {
     next(error);
   }
@@ -1722,7 +1887,7 @@ app.post('/api/admin/canchas', requireAnyAdmin, async (_req, res) => {
   res.status(410).json({ error: 'Creá la cancha dentro de un complejo' });
 });
 
-app.patch('/api/admin/canchas/:id', requireAnyAdmin, requireSubscriptionWrite, courtAccess, requireWritableComplex, async (req, res, next) => {
+app.patch('/api/admin/canchas/:id', requireAnyAdmin, protectDepositField, requireSubscriptionWrite, courtAccess, requireWritableComplex, async (req, res, next) => {
   const court = validateCourt({ ...req.court, ...req.body });
   if (court.error) return res.status(400).json(court);
   try {
@@ -1738,7 +1903,7 @@ app.patch('/api/admin/canchas/:id', requireAnyAdmin, requireSubscriptionWrite, c
   }
 });
 
-app.delete('/api/admin/canchas/:id', requireAnyAdmin, requireSubscriptionWrite, courtAccess, requireWritableComplex, async (req, res, next) => {
+app.delete('/api/admin/canchas/:id', requireAnyAdmin, requireStructureDelete, requireSubscriptionWrite, courtAccess, requireWritableComplex, async (req, res, next) => {
   try {
     await pool.query('DELETE FROM canchas WHERE id = $1', [req.params.id]);
     res.status(204).end();
@@ -1831,12 +1996,13 @@ app.delete('/api/admin/canchas/:id/excepciones/:exceptionId', requireAnyAdmin, r
 
 app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
   try {
-    await reconcilePendingPayments();
+    await synchronizeApprovedReservations();
+    await reconcilePendingPayments(50, { force: true });
     await expirePendingReservations();
     const params = [];
     let filter = '';
     if (req.user.role !== 'superadmin') {
-      params.push(req.user.id);
+      params.push(managedOwnerId(req));
       filter = 'WHERE COALESCE(co.owner_user_id, r.complejo_owner_user_id) = $1';
     }
     const { rows } = await pool.query(
@@ -1864,7 +2030,7 @@ app.post('/api/admin/reservas/:id/ocultar-historial', requireAnyAdmin, requireSu
     await client.query('BEGIN');
     const params = [req.params.id];
     const accessFilter = req.user.role === 'superadmin' ? '' : ' AND COALESCE(co.owner_user_id, r.complejo_owner_user_id) = $2';
-    if (req.user.role !== 'superadmin') params.push(req.user.id);
+    if (req.user.role !== 'superadmin') params.push(managedOwnerId(req));
     const reservationResult = await client.query(
       `SELECT r.id, r.estado, r.fecha::text, r.hora
          FROM reservas r
@@ -1899,7 +2065,7 @@ app.delete('/api/admin/reservas/:id', requireAnyAdmin, requireSubscriptionWrite,
     await client.query('BEGIN');
     const params = [req.params.id];
     const accessFilter = req.user.role === 'superadmin' ? '' : ' AND COALESCE(co.owner_user_id, r.complejo_owner_user_id) = $2';
-    if (req.user.role !== 'superadmin') params.push(req.user.id);
+    if (req.user.role !== 'superadmin') params.push(managedOwnerId(req));
     const reservationResult = await client.query(
       `SELECT r.id, r.estado, r.recurrencia_id
          FROM reservas r
@@ -2006,6 +2172,8 @@ app.post('/api/superadmin/admins', requireAuth(['superadmin']), async (req, res,
   const email = cleanText(req.body?.email, 254).toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Email inválido' });
   try {
+    const current = await pool.query('SELECT role FROM "user" WHERE lower(email)=lower($1)', [email]);
+    if (current.rows[0]?.role === 'subadmin') return res.status(409).json({ error: 'Primero quitá su acceso como subadministrador antes de autorizarlo como administrador' });
     const result = await pool.query(
       `INSERT INTO invitaciones_admin (email, created_by) VALUES ($1, $2)
        ON CONFLICT (email) DO UPDATE SET created_by = EXCLUDED.created_by RETURNING *`,
@@ -2116,4 +2284,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };
+export { app, applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };

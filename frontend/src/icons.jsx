@@ -14,6 +14,7 @@ export function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
     home: <><path d="m3.5 10.5 8.5-7 8.5 7" /><path d="M5.5 9.5v10h13v-10M9.5 19.5v-6h5v6" /></>,
     ticket: <><path d="M4 7.5A2.5 2.5 0 0 0 6.5 5h11A2.5 2.5 0 0 0 20 7.5v9a2.5 2.5 0 0 0-2.5 2.5h-11A2.5 2.5 0 0 0 4 16.5v-9Z" /><path d="M12 7v2M12 15v2M12 11v2" /></>,
     user: <><circle cx="12" cy="8" r="3.2" /><path d="M5 20c.9-3.1 3.3-4.7 7-4.7s6.1 1.6 7 4.7" /></>,
+    users: <><circle cx="9" cy="8" r="2.8" /><path d="M3.8 19c.7-2.8 2.5-4.2 5.2-4.2s4.5 1.4 5.2 4.2" /><path d="M16.2 5.8a2.5 2.5 0 0 1 0 4.8M17.2 14.8c1.7.5 2.8 1.8 3 4.2" /></>,
     filter: <><path d="M4 6h16M7 12h10M10 18h4" /></>,
     check: <path d="m5 12 4.5 4.5L19 7" />,
     logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9" /></>,
