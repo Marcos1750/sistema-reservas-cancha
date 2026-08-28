@@ -616,7 +616,7 @@ async function refreshExpiredPendingCheckout(userId, email) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally { client.release(); }
-  if (!stale) return;
+  if (!stale) return false;
   let snapshot;
   try {
     snapshot = await subscriptionProviderSnapshot(stale.proveedorId);
@@ -626,7 +626,7 @@ async function refreshExpiredPendingCheckout(userId, email) {
   if (String(snapshot.provider?.status || '').toLowerCase() !== 'pending') {
     const current = await subscriptionRowForUser(userId, email);
     if (current?.id === stale.id) await applyProviderSubscription(current, snapshot.provider, 'checkout_reconciliado', null, snapshot.billing);
-    return;
+    return false;
   }
   try {
     await cancelSubscription(stale.proveedorId);
@@ -635,6 +635,7 @@ async function refreshExpiredPendingCheckout(userId, email) {
   }
   const cleared = await pool.query("UPDATE suscripciones SET proveedor_id=NULL, payload_proveedor=NULL, updated_at=NOW() WHERE id=$1 AND estado='pendiente' AND proveedor_id=$2 RETURNING *", [stale.id, stale.proveedorId]);
   if (cleared.rowCount) await recordSubscriptionEvent(stale.id, 'checkout_vencido_anulado', { proveedor_id: stale.proveedorId });
+  return cleared.rowCount > 0;
 }
 
 async function reconcileSubscriptions(limit = 50) {
@@ -808,7 +809,7 @@ app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
   let checkout = null;
   let linkedToLocalSubscription = false;
   try {
-    await refreshExpiredPendingCheckout(req.user.id, req.user.email);
+    const renewedExpiredCheckout = await refreshExpiredPendingCheckout(req.user.id, req.user.email);
     const client = await pool.connect();
     let subscription;
     let trialDays = 0;
@@ -826,7 +827,7 @@ app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
         }
         throw subscriptionError('Ya hay una suscripción pendiente en Mercado Pago. Volvé a intentarlo desde el enlace original o anulala antes de crear otra.', 409);
       }
-      if (existing?.estado === 'pendiente' && !existing.proveedor_id && new Date(existing.updated_at).getTime() > Date.now() - 2 * 60_000) {
+      if (existing?.estado === 'pendiente' && !existing.proveedor_id && !renewedExpiredCheckout && new Date(existing.updated_at).getTime() > Date.now() - 2 * 60_000) {
         throw subscriptionError('Estamos creando tu enlace de Mercado Pago. Esperá unos segundos y volvé a intentarlo.', 409);
       }
       const fiscal = await client.query('SELECT cuit FROM datos_fiscales_suscripcion WHERE user_id=$1', [req.user.id]);
