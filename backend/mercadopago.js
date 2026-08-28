@@ -211,6 +211,11 @@ export function isValidWebhookSignature(headers, paymentId, secretOverride = '')
   const manifests = [
     `id:${resource};request-id:${requestId};ts:${values.ts};`,
     `id:${resource};ts:${values.ts};`,
+    // Algunas entregas de Mercado Pago omiten el separador final. No se
+    // acepta una firma sin HMAC: se prueban únicamente sus dos formatos
+    // documentados con y sin ese separador opcional.
+    `id:${resource};request-id:${requestId};ts:${values.ts}`,
+    `id:${resource};ts:${values.ts}`,
   ];
   return manifests.some((manifest) => {
     const expected = Buffer.from(crypto.createHmac('sha256', secret).update(manifest).digest('hex'));

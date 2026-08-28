@@ -25,6 +25,12 @@ test('valida firmas sin x-request-id cuando Mercado Pago no lo envía', () => {
   assert.equal(isValidWebhookSignature({ 'x-signature': `ts=${ts},v1=${signature}` }, 99), true);
 });
 
+test('valida firmas de Mercado Pago sin separador final en el manifiesto', () => {
+  const ts = '790';
+  const signature = crypto.createHmac('sha256', process.env.MERCADOPAGO_WEBHOOK_SECRET).update(`id:100;request-id:req-2;ts:${ts}`).digest('hex');
+  assert.equal(isValidWebhookSignature({ 'x-signature': `ts=${ts},v1=${signature}`, 'x-request-id': 'req-2' }, 100), true);
+});
+
 test('valida firmas con request-id vacío cuando Mercado Pago no lo envía', () => {
   const ts = '987';
   const signature = crypto.createHmac('sha256', process.env.MERCADOPAGO_WEBHOOK_SECRET).update(`id:77;request-id:;ts:${ts};`).digest('hex');
