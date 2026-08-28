@@ -2,13 +2,30 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-const databaseUrl = process.env.DATABASE_URL
+const rawDatabaseUrl = process.env.DATABASE_URL
   || process.env.STORAGE_DATABASE_URL
   || process.env.POSTGRES_URL;
 
-if (!databaseUrl) {
+if (!rawDatabaseUrl) {
   throw new Error('DATABASE_URL es obligatorio para iniciar la aplicación');
 }
+
+// node-postgres advierte que sslmode=require tendrá otra semántica en una
+// próxima versión. Conservamos el comportamiento seguro y explícito de hoy:
+// TLS con verificación de certificado y del nombre del servidor.
+function normalizeDatabaseUrl(value) {
+  try {
+    const url = new URL(value);
+    if (['prefer', 'require', 'verify-ca'].includes(url.searchParams.get('sslmode'))) {
+      url.searchParams.set('sslmode', 'verify-full');
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+const databaseUrl = normalizeDatabaseUrl(rawDatabaseUrl);
 
 const pool = new Pool({
   connectionString: databaseUrl,
