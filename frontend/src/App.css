@@ -416,6 +416,7 @@ body { min-width: 0; overflow-x: clip; }
 .plan-card, .subscription-card, .fiscal-panel, .plans-custom { border: 1px solid var(--line); border-radius: 18px; background: rgba(18, 49, 38, .5); }
 .plan-card { display: flex; flex-direction: column; min-height: 408px; padding: 26px; }
 .plan-card--featured { border-color: rgba(183, 238, 85, .58); background: rgba(25, 122, 73, .2); }
+.plan-card--selected { border-color: var(--lime); box-shadow: 0 12px 30px rgba(0, 0, 0, .18); }
 .plan-card h2, .subscription-card h2, .fiscal-panel h2, .plans-custom h2 { margin: 0; color: var(--warm); font-size: 27px; letter-spacing: -.045em; }
 .plan-card p, .subscription-card p, .fiscal-panel p, .plans-custom p { margin: 9px 0 0; color: var(--muted); line-height: 1.5; }
 .plan-card > strong { display: block; margin-top: 32px; color: var(--lime); font-size: 34px; letter-spacing: -.05em; }
