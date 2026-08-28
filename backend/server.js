@@ -839,7 +839,7 @@ app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
       await client.query('BEGIN');
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`subscription-checkout:${req.user.id}`]);
       const existing = await subscriptionRowForUser(req.user.id, req.user.email, client);
-      if (existing && isSubscriptionActive(existing)) throw subscriptionError('Ya tenés una suscripción activa. Usá la opción de mejora de plan.', 409);
+      if (existing && isSubscriptionActive(existing) && existing.tipo !== 'gratuita') throw subscriptionError('Ya tenés una suscripción activa. Usá la opción de mejora de plan.', 409);
       if (existing?.estado === 'pendiente' && existing.proveedor_id) {
         const existingUrl = existing.payload_proveedor?.init_point || existing.payload_proveedor?.sandbox_init_point;
         if (hasCheckoutUrl(existingUrl) && canReuseSubscriptionCheckout(existing)) {
@@ -856,7 +856,7 @@ app.post('/api/suscripcion/checkout', requireAuth(), async (req, res, next) => {
       if (!/^\d{11}$/.test(cuit)) throw subscriptionError('Completá tus datos fiscales con un CUIT válido antes de continuar.', 400);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`subscription-trial:${cuit}`]);
       const priorTrial = await client.query('SELECT 1 FROM suscripciones WHERE titular_cuit=$1 AND ($2::bigint IS NULL OR id<>$2) AND (prueba_reservada_at IS NOT NULL OR prueba_iniciada_at IS NOT NULL) LIMIT 1', [cuit, existing?.id || null]);
-      trialDays = existing?.prueba_iniciada_at || priorTrial.rowCount ? 0 : planDefinition.trialDays;
+      trialDays = existing?.prueba_reservada_at || existing?.prueba_iniciada_at || priorTrial.rowCount ? 0 : planDefinition.trialDays;
       const planResult = await client.query('SELECT codigo, nombre, precio_ars FROM planes_suscripcion WHERE codigo=$1 AND activo=true', [planDefinition.code]);
       if (!planResult.rowCount) throw subscriptionError('Ese plan no está disponible en este momento.', 409);
       plan = { ...planDefinition, name: planResult.rows[0].nombre, price: Number(planResult.rows[0].precio_ars) };
@@ -1424,8 +1424,8 @@ app.post('/api/superadmin/suscripciones/gratuita', requireAuth(['superadmin']), 
       if (existing.rowCount && existing.rows[0].estado !== 'anulada') throw subscriptionError('Ese email ya tiene una suscripción vigente.', 409);
       const reference = `nm-free-${crypto.randomUUID()}`;
       const subscription = existing.rowCount
-        ? await client.query("UPDATE suscripciones SET user_id=$1, email=$2, plan_codigo='estandar', tipo='gratuita', estado='activa', referencia_externa=$3, proveedor_id=NULL, precio_ars=0, nota=$4, gracia_hasta_at=NULL, anulado_at=NULL, anulado_por=NULL, anulado_motivo='', payload_proveedor=NULL, updated_at=NOW() WHERE id=$5 RETURNING *", [person.rows[0]?.id || null, email, reference, note, existing.rows[0].id])
-        : await client.query("INSERT INTO suscripciones (user_id, email, plan_codigo, tipo, estado, referencia_externa, precio_ars, nota) VALUES ($1,$2,'estandar','gratuita','activa',$3,0,$4) RETURNING *", [person.rows[0]?.id || null, email, reference, note]);
+        ? await client.query("UPDATE suscripciones SET user_id=$1, email=$2, plan_codigo='estandar', tipo='gratuita', estado='activa', referencia_externa=$3, proveedor_id=NULL, precio_ars=0, prueba_reservada_at=COALESCE(prueba_reservada_at, NOW()), nota=$4, gracia_hasta_at=NULL, anulado_at=NULL, anulado_por=NULL, anulado_motivo='', payload_proveedor=NULL, updated_at=NOW() WHERE id=$5 RETURNING *", [person.rows[0]?.id || null, email, reference, note, existing.rows[0].id])
+        : await client.query("INSERT INTO suscripciones (user_id, email, plan_codigo, tipo, estado, referencia_externa, precio_ars, prueba_reservada_at, nota) VALUES ($1,$2,'estandar','gratuita','activa',$3,0,NOW(),$4) RETURNING *", [person.rows[0]?.id || null, email, reference, note]);
       if (person.rowCount) await client.query("UPDATE \"user\" SET role='admin_cancha' WHERE id=$1 AND role='cliente'", [person.rows[0].id]);
       else await client.query('INSERT INTO invitaciones_admin (email, created_by) VALUES ($1,$2) ON CONFLICT (email) DO NOTHING', [email, req.user.id]);
       await recordSubscriptionEvent(subscription.rows[0].id, 'gratuita_creada', { pending_invitation: !person.rowCount, note }, null, client);
