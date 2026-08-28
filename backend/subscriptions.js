@@ -30,6 +30,13 @@ export function subscriptionRestrictionsRequired(subscription, globallyEnabled =
     || (subscription?.estado === 'en_gracia' && !isSubscriptionActive(subscription, now));
 }
 
+// Los accesos gratuitos siempre tienen los límites publicados. Esto evita que
+// la etapa de activación gradual deje sin tope a un usuario gratuito.
+export function subscriptionCapacityRestrictionsRequired(subscription, globallyEnabled = false, now = new Date()) {
+  return subscriptionRestrictionsRequired(subscription, globallyEnabled, now)
+    || subscription?.tipo === 'gratuita';
+}
+
 export function canReuseSubscriptionCheckout(subscription, now = new Date()) {
   const updatedAt = new Date(subscription?.updated_at).getTime();
   return Number.isFinite(updatedAt) && updatedAt > new Date(now).getTime() - SUBSCRIPTION_CHECKOUT_REUSE_WINDOW_MS;

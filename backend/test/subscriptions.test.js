@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from '../subscriptions.js';
+import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from '../subscriptions.js';
 
 test('los planes comerciales tienen los límites acordados', () => {
-  assert.deepEqual(planFor('fundador').maxCourts, 6);
+  assert.deepEqual(planFor('fundador'), { code: 'fundador', name: 'Fundador', price: 19900, maxComplexes: 1, maxCourts: 6, trialDays: 14, founder: true });
   assert.deepEqual(planFor('estandar').maxComplexes, 1);
+  assert.deepEqual(planFor('estandar').maxCourts, 6);
+  assert.deepEqual(planFor('pro').maxComplexes, 3);
   assert.deepEqual(planFor('pro').maxCourts, 20);
 });
 
@@ -38,6 +40,16 @@ test('el usuario gratuito usa los límites estándar sin cobro', () => {
   assert.equal(subscription.plan.nombre, 'Gratuito');
   assert.equal(subscription.capabilities.can_add_complex, false);
   assert.equal(subscription.capabilities.can_add_court, false);
+  assert.equal(subscriptionCapacityRestrictionsRequired({ tipo: 'gratuita', estado: 'activa' }, false), true);
+});
+
+test('las capacidades bloquean los límites de cada plan', () => {
+  assert.equal(capabilitiesFor({ tipo: 'mercadopago', estado: 'activa', plan_codigo: 'fundador', complexes_used: 1, courts_used: 5 }).can_add_complex, false);
+  assert.equal(capabilitiesFor({ tipo: 'mercadopago', estado: 'activa', plan_codigo: 'fundador', complexes_used: 0, courts_used: 6 }).can_add_court, false);
+  assert.equal(capabilitiesFor({ tipo: 'mercadopago', estado: 'activa', plan_codigo: 'pro', complexes_used: 2, courts_used: 19 }).can_add_complex, true);
+  assert.equal(capabilitiesFor({ tipo: 'mercadopago', estado: 'activa', plan_codigo: 'pro', complexes_used: 2, courts_used: 19 }).can_add_court, true);
+  assert.equal(capabilitiesFor({ tipo: 'mercadopago', estado: 'activa', plan_codigo: 'pro', complexes_used: 3, courts_used: 20 }).can_add_complex, false);
+  assert.equal(capabilitiesFor({ tipo: 'mercadopago', estado: 'activa', plan_codigo: 'pro', complexes_used: 3, courts_used: 20 }).can_add_court, false);
 });
 
 test('interpreta las cuotas autorizadas y conserva la más reciente', () => {

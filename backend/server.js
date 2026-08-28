@@ -7,7 +7,7 @@ import { del } from '@vercel/blob';
 import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getAuthorizedPayment, getPayment, getSubscription, getSubscriptionPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchAuthorizedPayments, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
-import { canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
+import { canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
 import {
   auth,
   migrateAuth,
@@ -439,7 +439,7 @@ async function requireSubscriptionWrite(req, res, next) {
 async function requireSubscriptionComplexCapacity(req, res, next) {
   try {
     const entitlement = req.subscriptionEntitlement || await subscriptionForRequest(req);
-    if (!subscriptionRestrictionsRequired(entitlement.subscription, subscriptionEnforcementEnabled())) { req.subscriptionEntitlement = entitlement; return next(); }
+    if (!subscriptionCapacityRestrictionsRequired(entitlement.subscription, subscriptionEnforcementEnabled())) { req.subscriptionEntitlement = entitlement; return next(); }
     if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa.', code: 'subscription_inactive' });
     if (!entitlement.capabilities.can_add_complex) return res.status(409).json({ error: `Tu plan permite hasta ${entitlement.capabilities.max_complexes} sede${entitlement.capabilities.max_complexes === 1 ? '' : 's'}. Elegí Pro o solicitá un plan a medida.`, code: 'complex_limit' });
     req.subscriptionEntitlement = entitlement;
@@ -450,7 +450,7 @@ async function requireSubscriptionComplexCapacity(req, res, next) {
 async function requireSubscriptionCourtCapacity(req, res, next) {
   try {
     const entitlement = req.subscriptionEntitlement || await subscriptionForRequest(req);
-    if (!subscriptionRestrictionsRequired(entitlement.subscription, subscriptionEnforcementEnabled())) { req.subscriptionEntitlement = entitlement; return next(); }
+    if (!subscriptionCapacityRestrictionsRequired(entitlement.subscription, subscriptionEnforcementEnabled())) { req.subscriptionEntitlement = entitlement; return next(); }
     if (!entitlement.capabilities.can_write) return res.status(403).json({ error: 'Tu suscripción no está activa.', code: 'subscription_inactive' });
     if (!entitlement.capabilities.can_add_court) return res.status(409).json({ error: `Tu plan permite hasta ${entitlement.capabilities.max_canchas} canchas. Elegí Pro o solicitá un plan a medida.`, code: 'court_limit' });
     req.subscriptionEntitlement = entitlement;
