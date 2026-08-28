@@ -24,6 +24,10 @@ export function isSubscriptionActive(subscription, now = new Date()) {
   return true;
 }
 
+export function subscriptionRestrictionsRequired(subscription, globallyEnabled = false) {
+  return globallyEnabled || ['anulada', 'vencida'].includes(subscription?.estado);
+}
+
 export function canReuseSubscriptionCheckout(subscription, now = new Date()) {
   const updatedAt = new Date(subscription?.updated_at).getTime();
   return Number.isFinite(updatedAt) && updatedAt > new Date(now).getTime() - SUBSCRIPTION_CHECKOUT_REUSE_WINDOW_MS;

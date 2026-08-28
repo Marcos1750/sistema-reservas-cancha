@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, summarizeAuthorizedPayments } from '../subscriptions.js';
+import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from '../subscriptions.js';
 
 test('los planes comerciales tienen los límites acordados', () => {
   assert.deepEqual(planFor('fundador').maxCourts, 6);
@@ -17,6 +17,12 @@ test('la gracia deja de habilitar acciones al llegar a su fecha límite', () => 
   const now = new Date('2026-08-26T12:00:00.000Z');
   assert.equal(isSubscriptionActive({ estado: 'en_gracia', tipo: 'mercadopago', gracia_hasta_at: '2026-08-26T11:59:59.000Z' }, now), false);
   assert.equal(isSubscriptionActive({ estado: 'en_gracia', tipo: 'mercadopago', gracia_hasta_at: '2026-08-26T12:00:01.000Z' }, now), true);
+});
+
+test('una anulación o vencimiento bloquean siempre aunque el control global esté en modo de prueba', () => {
+  assert.equal(subscriptionRestrictionsRequired({ estado: 'anulada' }, false), true);
+  assert.equal(subscriptionRestrictionsRequired({ estado: 'vencida' }, false), true);
+  assert.equal(subscriptionRestrictionsRequired({ estado: 'sin_suscripcion' }, false), false);
 });
 
 test('reutiliza sólo enlaces de checkout pendientes recientes', () => {
