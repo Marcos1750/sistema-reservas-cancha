@@ -66,8 +66,8 @@ test('interpreta las cuotas autorizadas y conserva la más reciente', () => {
 test('los eventos de Mercado Pago llevan la suscripción por prueba, gracia, recuperación y anulación', () => {
   const now = new Date('2026-08-26T12:00:00Z');
   assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente' }, { status: 'authorized', auto_recurring: { free_trial: { frequency: 14 } } }, {}, now), 'prueba');
-  assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente', prueba_reservada_at: now }, { status: 'authorized', auto_recurring: {} }, {}, now), 'prueba');
-  assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente' }, { status: 'authorized', auto_recurring: {} }, {}, now), 'en_gracia');
+  assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente', prueba_reservada_at: now }, { status: 'authorized', auto_recurring: {} }, {}, now), 'activa');
+  assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente' }, { status: 'authorized', auto_recurring: {} }, {}, now), 'activa');
   assert.equal(deriveProviderSubscriptionState({ estado: 'activa', prueba_iniciada_at: now, prueba_finaliza_at: '2026-08-20T12:00:00Z' }, { status: 'authorized' }, { latestOutcome: 'rejected' }, now), 'en_gracia');
   assert.equal(deriveProviderSubscriptionState({ estado: 'vencida', prueba_iniciada_at: now }, { status: 'authorized' }, { latestOutcome: 'approved', approvedCount: 1 }, now), 'activa');
   assert.equal(deriveProviderSubscriptionState({ estado: 'activa' }, { status: 'canceled' }, {}, now), 'anulada');

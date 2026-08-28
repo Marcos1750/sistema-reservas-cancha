@@ -90,8 +90,10 @@ export function deriveProviderSubscriptionState(current, provider, billing = {},
   if (billing.latestOutcome === 'approved') return 'activa';
   if (billing.latestOutcome === 'rejected') return 'en_gracia';
   if (!['authorized', 'active'].includes(providerStatus)) return currentState;
-  const providerTrialDays = Number(provider?.auto_recurring?.free_trial?.frequency || (current?.prueba_reservada_at ? 14 : 0));
-  if (!current?.prueba_iniciada_at) return providerTrialDays > 0 ? 'prueba' : 'en_gracia';
+  // La reserva histórica de una prueba evita conceder otra, pero no debe
+  // convertir una suscripción mensual sin prueba de Mercado Pago en "prueba".
+  const providerTrialDays = Number(provider?.auto_recurring?.free_trial?.frequency || 0);
+  if (!current?.prueba_iniciada_at) return providerTrialDays > 0 ? 'prueba' : 'activa';
   const trialEndsAt = current.prueba_finaliza_at ? new Date(current.prueba_finaliza_at).getTime() : null;
   if (trialEndsAt && trialEndsAt > new Date(now).getTime()) return 'prueba';
   if (['activa', 'en_gracia', 'vencida'].includes(currentState)) return currentState;
