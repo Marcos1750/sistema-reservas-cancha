@@ -1224,6 +1224,101 @@ body { min-width: 0; overflow-x: clip; }
   .admin-drawer[open] { display: none; }
 }
 
+/* Reservas compactas: dos líneas de información para leer y operar rápido en móvil. */
+@media (max-width: 780px) {
+  .admin-table__row {
+    grid-template-columns: 70px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    column-gap: 12px;
+    row-gap: 4px;
+    min-height: 0;
+    padding: 12px 14px;
+  }
+
+  .admin-booking-time {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: stretch;
+    display: grid;
+    align-content: center;
+  }
+
+  .admin-booking-time strong {
+    white-space: nowrap;
+    font-size: 15px;
+    line-height: 1.1;
+    letter-spacing: -.05em;
+  }
+
+  .admin-booking-time small { margin-top: 4px; font-size: 11px; }
+
+  .admin-booking-client {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .admin-booking-client strong {
+    overflow: hidden;
+    font-size: 16px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .admin-booking-client small { margin-top: 3px; font-size: 12px; }
+
+  .admin-table__row > div.admin-booking-venue {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    overflow: hidden;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .admin-booking-venue strong,
+  .admin-booking-venue small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .admin-booking-venue strong { flex: 0 1 auto; font-size: 13px; }
+  .admin-booking-venue small { flex: 1 1 auto; margin: 0; font-size: 12px; }
+  .admin-booking-venue small::before { content: " · "; }
+
+  .admin-status {
+    grid-column: 3;
+    grid-row: 2;
+    align-self: center;
+    justify-self: end;
+    margin: 0;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .admin-status span { width: 6px; height: 6px; }
+
+  .admin-delete {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+    width: 34px;
+    height: 34px;
+  }
+}
+
+@media (max-width: 380px) {
+  .admin-table__row { grid-template-columns: 64px minmax(0, 1fr) auto; padding-inline: 12px; column-gap: 9px; }
+  .admin-booking-client strong { font-size: 15px; }
+  .admin-booking-venue strong { font-size: 12px; }
+  .admin-booking-venue small, .admin-status { font-size: 11px; }
+}
+
 /* Modales de confirmación (shadcn/Radix): entrada breve, sin rebote. */
 @keyframes patio-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes patio-fade-out { from { opacity: 1; } to { opacity: 0; } }

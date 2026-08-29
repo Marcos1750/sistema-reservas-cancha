@@ -160,11 +160,11 @@ function AdminTable({ bookings, onCancel, onHideHistory, mode = "upcoming", now 
                 {booking.fecha?.slice(8, 10)}/{booking.fecha?.slice(5, 7)}
               </small>
             </div>
-            <div>
+            <div className="admin-booking-client">
               <strong>{booking.nombre}</strong>
               <small>{booking.telefono}</small>
             </div>
-            <div>
+            <div className="admin-booking-venue">
               <strong>{booking.complejo || "Complejo eliminado"}</strong>
               <small>
                 {booking.cancha || "Cancha eliminada"} ·{" "}
