@@ -206,7 +206,10 @@ function BookingsScreen({ bookings, onChange, session, onLogin, onCancel, notice
   const [actionFeedback, setActionFeedback] = useState(null);
   const cancel = async (booking) => {
     const result = await onCancel(booking);
-    if (result) setActionFeedback({ bookingId: booking.id, ...result });
+    if (result) {
+      setActionFeedback({ bookingId: booking.id, ...result });
+      if (result.tone === 'success') setActiveTab('history');
+    }
   };
   const { upcoming, history } = splitBookingsByTimeline(bookings);
   const visibleBookings = activeTab === 'upcoming' ? upcoming : history;
