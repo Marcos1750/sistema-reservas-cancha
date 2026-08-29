@@ -19,6 +19,7 @@ export function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
     check: <path d="m5 12 4.5 4.5L19 7" />,
     logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9" /></>,
     menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
+    close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     pitch: <><rect x="4" y="4" width="16" height="16" rx="1" /><path d="M12 4v16M4 12h16M7 8h3v8H7M17 8h-3v8h3" /></>,
     spark: <><path d="M12 2.8 13.5 9l5.7 1.5-5.7 1.5-1.5 6.2-1.5-6.2-5.7-1.5L10.5 9 12 2.8Z" /><path d="m19 3 .5 2 1.8.5-1.8.5L19 8l-.5-2-1.8-.5 1.8-.5L19 3Z" /></>,
   };
@@ -32,10 +33,16 @@ export function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
 
 export function PitchMark({ compact = false }) {
   return (
-    <span className={`pitch-mark${compact ? ' pitch-mark--compact' : ''}`} aria-hidden="true">
-      <span className="pitch-mark__line pitch-mark__line--top" />
-      <span className="pitch-mark__line pitch-mark__line--mid" />
-      <span className="pitch-mark__dot" />
-    </span>
+    <svg
+      className={`pitch-mark${compact ? ' pitch-mark--compact' : ''}`}
+      viewBox="0 0 96 96"
+      width="1em"
+      height="1em"
+      aria-hidden="true"
+    >
+      <rect x="8" y="16" width="44" height="16" rx="8" fill="currentColor" />
+      <rect x="20" y="40" width="52" height="16" rx="8" fill="currentColor" />
+      <rect x="32" y="64" width="56" height="16" rx="8" fill="var(--lime)" />
+    </svg>
   );
 }

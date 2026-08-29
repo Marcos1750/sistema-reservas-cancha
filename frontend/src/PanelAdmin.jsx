@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAlert, useConfirm } from "./lib/confirmDialog";
 import { CalendarPicker } from "./CalendarPicker";
 import { TimePicker } from "./TimePicker";
 import { Icon, PitchMark } from "./icons";
@@ -14,6 +15,12 @@ import {
 } from "./lib/adminOverview";
 import { getComplexTheme, getSportTheme } from "./sportTheme";
 import { useSessionWithFallback } from "./useSessionWithFallback";
+import {
+  demoRequest,
+  disableDemoAdmin,
+  enableDemoAdmin,
+  isDemoAdmin,
+} from "./demoAdmin";
 
 const sports = ["Fútbol 5", "Pádel", "Tenis"];
 const CALENDAR_PAGE_SIZE = 15;
@@ -76,7 +83,7 @@ function AdminSportStripes() {
   return null;
 }
 
-function GoogleAccess({ onLogin, message }) {
+function GoogleAccess({ onLogin, onDemo, message }) {
   return (
     <div className="admin-login">
       <div className="admin-login__grid" />
@@ -93,6 +100,16 @@ function GoogleAccess({ onLogin, message }) {
         <Button className="primary-button" type="button" onClick={onLogin}>
           Continuar con Google <Icon name="arrow" size={17} />
         </Button>
+        {onDemo && (
+          <>
+            <button className="secondary-button" type="button" onClick={onDemo}>
+              Ver el panel en modo demo
+            </button>
+            <small className="demo-note">
+              Datos de ejemplo, sin conexión con la API: nada se guarda.
+            </small>
+          </>
+        )}
       </div>
     </div>
   );
@@ -186,6 +203,7 @@ function AdminTable({ bookings, onCancel, onHideHistory, mode = "upcoming", now 
 }
 
 function SlotEditor({ court, request, readOnly = false }) {
+  const confirm = useConfirm();
   const [slots, setSlots] = useState(defaultSlots);
   const [exceptions, setExceptions] = useState([]);
   const [blocks, setBlocks] = useState([]);
@@ -349,7 +367,14 @@ function SlotEditor({ court, request, readOnly = false }) {
     }
   };
   const removeBlock = async (item) => {
-    if (!window.confirm(`¿Desbloquear el ${item.fecha}?`)) return;
+    if (
+      !(await confirm({
+        title: "¿Desbloquear este día?",
+        description: `El ${item.fecha} vuelve a aceptar reservas con los horarios y precios habituales de la cancha.`,
+        confirmText: "Desbloquear",
+      }))
+    )
+      return;
     try {
       await request(`/api/admin/canchas/${court.id}/bloqueos/${item.id}`, {
         method: "DELETE",
@@ -871,6 +896,7 @@ async function uploadComplexPhoto(file) {
 }
 
 function MercadoPagoSettings({ complex, request, readOnly = false }) {
+  const confirm = useConfirm();
   const [settings, setSettings] = useState(null);
   const [percentage, setPercentage] = useState("10");
   const [message, setMessage] = useState("");
@@ -912,9 +938,13 @@ function MercadoPagoSettings({ complex, request, readOnly = false }) {
   };
   const disconnect = async () => {
     if (
-      !window.confirm(
-        "¿Desconectar Mercado Pago de este complejo? No se podrán crear nuevas reservas hasta reconectarlo.",
-      )
+      !(await confirm({
+        title: "¿Desconectar Mercado Pago?",
+        description:
+          "El complejo deja de cobrar señas: no se podrán crear nuevas reservas hasta que vuelvas a conectar la cuenta.",
+        confirmText: "Desconectar",
+        tone: "danger",
+      }))
     )
       return;
     setSaving(true);
@@ -1029,6 +1059,8 @@ function MercadoPagoSettings({ complex, request, readOnly = false }) {
 }
 
 function ComplexesManager({ complexes, reload, request, adminAccess }) {
+  const confirm = useConfirm();
+  const alert = useAlert();
   const [complexForm, setComplexForm] = useState(emptyComplex);
   const [firstCourt, setFirstCourt] = useState(emptyCourt);
   const [createPhoto, setCreatePhoto] = useState(null);
@@ -1133,11 +1165,15 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
     }
   };
   const deleteComplex = async () => {
+    if (saving) return;
     if (
-      saving ||
-      !window.confirm(
-        `¿Eliminar definitivamente “${activeComplex.nombre}” y todas sus canchas? El historial de reservas se conservará.`,
-      )
+      !(await confirm({
+        title: `¿Eliminar “${activeComplex.nombre}”?`,
+        description:
+          "Se eliminan el complejo y todas sus canchas de forma definitiva. El historial de reservas se conserva.",
+        confirmText: "Eliminar complejo",
+        tone: "danger",
+      }))
     )
       return;
     setSaving(true);
@@ -1151,7 +1187,11 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       show("Complejo eliminado definitivamente.");
     } catch (error) {
       show(error.message, "error");
-      window.alert(`No se pudo eliminar el complejo: ${error.message}`);
+      alert({
+        title: "No se pudo eliminar el complejo",
+        description: error.message,
+        tone: "danger",
+      });
     } finally {
       setSaving(false);
     }
@@ -1189,9 +1229,13 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
   };
   const deleteCourt = async () => {
     if (
-      !window.confirm(
-        `¿Eliminar definitivamente “${selectedCourt.nombre}”? El historial de reservas se conservará.`,
-      )
+      !(await confirm({
+        title: `¿Eliminar “${selectedCourt.nombre}”?`,
+        description:
+          "La cancha se elimina de forma definitiva junto con sus horarios y precios. El historial de reservas se conserva.",
+        confirmText: "Eliminar cancha",
+        tone: "danger",
+      }))
     )
       return;
     try {
@@ -1584,6 +1628,7 @@ function SuperadminManager({ admins, request, reload }) {
 }
 
 function SubadminManager({ subadmins, request, reload }) {
+  const confirm = useConfirm();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState(null);
@@ -1605,8 +1650,18 @@ function SubadminManager({ subadmins, request, reload }) {
     }
   };
   const revoke = async (member) => {
-    const action = member.estado === "pendiente" ? "cancelar esta invitación" : "quitar el acceso a este subadministrador";
-    if (!window.confirm(`¿Querés ${action}?`)) return;
+    const isPending = member.estado === "pendiente";
+    if (
+      !(await confirm({
+        title: isPending ? "¿Cancelar esta invitación?" : "¿Quitar el acceso al panel?",
+        description: isPending
+          ? `La invitación a ${member.email} deja de ser válida. Podés volver a invitarlo cuando quieras.`
+          : `${member.email} pierde el acceso al panel de inmediato. Podés volver a invitarlo cuando quieras.`,
+        confirmText: isPending ? "Cancelar invitación" : "Quitar acceso",
+        tone: "danger",
+      }))
+    )
+      return;
     setBusyId(member.id);
     setMessage("");
     try {
@@ -2050,9 +2105,80 @@ function SubscriptionManager({ isSuperadmin, request }) {
   );
 }
 
+/* El sidebar de escritorio y el drawer móvil comparten las mismas secciones y accesos. */
+function AdminNavContent({
+  navItems,
+  activeSection,
+  attention,
+  profile,
+  roleLabel,
+  onSelect,
+  onLogout,
+  activeItemRef,
+  /* En móvil la marca del encabezado ya lleva a la app pública. */
+  showAppLink = true,
+}) {
+  return (
+    <>
+      <nav aria-label="Secciones del panel">
+        {navItems.map(([id, label, icon]) => {
+          const itemAttention = id === "subscriptions" ? attention : null;
+          const isActive = activeSection === id;
+          return (
+            <button
+              className={`admin-nav-item${isActive ? " is-active" : ""}`}
+              key={id}
+              type="button"
+              ref={isActive ? activeItemRef : undefined}
+              aria-current={isActive ? "page" : undefined}
+              aria-label={
+                itemAttention ? `${label}. ${itemAttention.label}` : undefined
+              }
+              onClick={() => onSelect(id)}
+            >
+              <Icon name={icon} size={18} />
+              <span>{label}</span>
+              {itemAttention && (
+                <span
+                  className={`subscription-attention subscription-attention--${itemAttention.tone}`}
+                  aria-hidden="true"
+                >
+                  Atención
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="admin-sidebar__bottom">
+        {showAppLink && (
+          <a className="admin-nav-item" href="/">
+            <Icon name="back" size={18} />
+            <span>Ver aplicación</span>
+          </a>
+        )}
+        <button className="admin-nav-item" type="button" onClick={onLogout}>
+          <Icon name="logout" size={18} />
+          <span>Salir</span>
+        </button>
+        <div className="admin-profile">
+          <span>{profile.name?.slice(0, 2).toUpperCase()}</span>
+          <div>
+            <strong>{profile.name}</strong>
+            <small>{roleLabel}</small>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function PanelAdmin() {
   const { data: session, isPending } = useSessionWithFallback();
-  const sessionUserId = session?.user?.id;
+  const confirm = useConfirm();
+  const alert = useAlert();
+  const [demo, setDemo] = useState(isDemoAdmin);
+  const sessionUserId = demo ? "demo-admin" : session?.user?.id;
   const [profile, setProfile] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [bookings, setBookings] = useState([]);
@@ -2065,11 +2191,19 @@ export default function PanelAdmin() {
   const [calendarTab, setCalendarTab] = useState("upcoming");
   const [upcomingLimit, setUpcomingLimit] = useState(CALENDAR_PAGE_SIZE);
   const [activeSection, setActiveSection] = useState("overview");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState("");
   const [profileAttempt, setProfileAttempt] = useState(0);
+  const drawerRef = useRef(null);
+  const menuButtonRef = useRef(null);
+  const activeItemRef = useRef(null);
+  const wasMenuOpenRef = useRef(false);
   const request = useCallback(
-    async (path, options) => readApiResponse(await apiFetch(path, options)),
-    [],
+    async (path, options) =>
+      demo
+        ? demoRequest(path, options)
+        : readApiResponse(await apiFetch(path, options)),
+    [demo],
   );
   const reload = useCallback(async () => {
     const [nextBookings, nextComplexes] = await Promise.all([
@@ -2126,6 +2260,46 @@ export default function PanelAdmin() {
     const timer = window.setInterval(() => setAgendaNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+  /* El <dialog> nativo aporta modalidad, foco atrapado y cierre con Escape.
+     El foco se coloca acá —después de showModal/close— para no depender del
+     orden en que el navegador restaura el foco previo. */
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    if (menuOpen) {
+      if (!drawer.open) drawer.showModal();
+      (activeItemRef.current || drawer.querySelector(".admin-nav-item"))?.focus();
+      wasMenuOpenRef.current = true;
+      return;
+    }
+    if (drawer.open) drawer.close();
+    if (!wasMenuOpenRef.current) return;
+    wasMenuOpenRef.current = false;
+    /* Si el drawer se cerró al pasar a tablet, el botón ya no existe en pantalla. */
+    if (menuButtonRef.current?.offsetParent) menuButtonRef.current.focus();
+  }, [menuOpen]);
+  /* El evento "close" no burbujea, así que React no lo entrega por onClose:
+     sin este listener el estado quedaría abierto y el menú no volvería a abrirse. */
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return undefined;
+    const syncClosed = () => setMenuOpen(false);
+    drawer.addEventListener("close", syncClosed);
+    return () => drawer.removeEventListener("close", syncClosed);
+  }, []);
+  /* A partir de tablet vuelve el sidebar persistente: el drawer ya no aplica. */
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 781px)");
+    const closeOnDesktop = () => {
+      if (query.matches) setMenuOpen(false);
+    };
+    query.addEventListener("change", closeOnDesktop);
+    window.addEventListener("resize", closeOnDesktop);
+    return () => {
+      query.removeEventListener("change", closeOnDesktop);
+      window.removeEventListener("resize", closeOnDesktop);
+    };
+  }, []);
   const bookingSections = getAdminBookingSections(bookings, agendaNow);
   const upcomingBookings = filterDate
     ? bookingSections.upcoming.filter((booking) => booking.fecha === filterDate)
@@ -2139,7 +2313,24 @@ export default function PanelAdmin() {
       provider: "google",
       callbackURL: window.location.href,
     });
+  const startDemo = () => {
+    enableDemoAdmin();
+    setError("");
+    setProfile(null);
+    setProfileAttempt(0);
+    setDemo(true);
+  };
   const logout = async () => {
+    if (demo) {
+      disableDemoAdmin();
+      setDemo(false);
+      setProfile(null);
+      setSubscription(null);
+      setAdminAccess(null);
+      setBookings([]);
+      setComplexes([]);
+      return;
+    }
     await authClient.signOut();
     setProfile(null);
   };
@@ -2149,16 +2340,23 @@ export default function PanelAdmin() {
   };
   const changeAdminSection = (nextSection) => {
     setActiveSection(nextSection);
+    setMenuOpen(false);
     if (nextSection === "calendar") {
       setCalendarTab("upcoming");
       setUpcomingLimit(CALENDAR_PAGE_SIZE);
     }
+    window.scrollTo({ top: 0, behavior: "instant" });
   };
+  const closeAdminMenu = () => setMenuOpen(false);
   const cancelBooking = async (id) => {
     if (
-      !window.confirm(
-        "¿Querés cancelar este turno? Si la seña está pendiente, el horario se liberará de inmediato.",
-      )
+      !(await confirm({
+        title: "¿Cancelar este turno?",
+        description:
+          "Si la seña está pendiente, el horario se libera de inmediato y vuelve a quedar disponible para otras personas.",
+        confirmText: "Cancelar turno",
+        tone: "danger",
+      }))
     )
       return;
     setError("");
@@ -2167,31 +2365,48 @@ export default function PanelAdmin() {
       await reload();
     } catch (requestError) {
       setError(requestError.message);
-      window.alert(`No se pudo cancelar la reserva: ${requestError.message}`);
+      alert({
+        title: "No se pudo cancelar la reserva",
+        description: requestError.message,
+        tone: "danger",
+      });
     }
   };
   const hideHistoryBooking = async (id) => {
-    if (!window.confirm("¿Quitar este turno del historial? La reserva y sus pagos se conservarán.")) return;
+    if (
+      !(await confirm({
+        title: "¿Quitar este turno del historial?",
+        description: "Deja de aparecer en el listado del panel. La reserva y sus pagos se conservan.",
+        confirmText: "Quitar del historial",
+      }))
+    )
+      return;
     setError("");
     try {
       await request(`/api/admin/reservas/${id}/ocultar-historial`, { method: "POST" });
       await reload();
     } catch (requestError) {
       setError(requestError.message);
-      window.alert(`No se pudo quitar del historial: ${requestError.message}`);
+      alert({
+        title: "No se pudo quitar del historial",
+        description: requestError.message,
+        tone: "danger",
+      });
     }
   };
-  if (isPending || (session?.user && profile === null))
+  if (demo ? profile === null : isPending || (session?.user && profile === null))
     return (
       <div className="admin-login">
         <div className="admin-login__card">Cargando el panel…</div>
       </div>
     );
-  if (!session?.user) return <GoogleAccess onLogin={login} />;
+  if (!demo && !session?.user)
+    return <GoogleAccess onLogin={login} onDemo={startDemo} />;
   if (profile === false)
     return (
       <GoogleAccess
         onLogin={login}
+        onDemo={startDemo}
         message={
           error ||
           "Esta cuenta no tiene permisos. Elegí la cuenta autorizada de Google para continuar."
@@ -2229,60 +2444,79 @@ export default function PanelAdmin() {
   const publishedCourts = publishedComplexes
     .flatMap((complex) => complex.canchas || [])
     .filter((court) => court.activa);
+  const roleLabel = demo
+    ? "Administrador · Demo"
+    : isSuperadmin
+      ? "Superadministrador"
+      : profile.role === "subadmin"
+        ? "Subadministrador"
+        : "Administrador";
+  const navContentProps = {
+    navItems,
+    activeSection,
+    attention,
+    profile,
+    roleLabel,
+    onSelect: changeAdminSection,
+    onLogout: logout,
+  };
   return (
     <div className="admin-shell">
+      <header className="admin-mobile-bar">
+        <a className="brand" href="/" aria-label="Volver a explorar">
+          <PitchMark />
+          <span>NEW MATCH</span>
+        </a>
+        <button
+          className="admin-mobile-bar__menu"
+          type="button"
+          ref={menuButtonRef}
+          aria-label="Abrir el menú del panel"
+          aria-expanded={menuOpen}
+          aria-controls="admin-drawer"
+          onClick={() => setMenuOpen(true)}
+        >
+          <Icon name="menu" size={22} />
+        </button>
+      </header>
+      <dialog
+        className="admin-drawer"
+        id="admin-drawer"
+        ref={drawerRef}
+        aria-labelledby="admin-drawer-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") closeAdminMenu();
+        }}
+        onClick={(event) => {
+          if (event.target === drawerRef.current) closeAdminMenu();
+        }}
+      >
+        <div className="admin-drawer__panel">
+          <div className="admin-drawer__head">
+            <h2 id="admin-drawer-title">Operaciones</h2>
+            <button
+              className="admin-drawer__close"
+              type="button"
+              aria-label="Cerrar el menú del panel"
+              onClick={closeAdminMenu}
+            >
+              <Icon name="close" size={20} />
+            </button>
+          </div>
+          <AdminNavContent
+            {...navContentProps}
+            activeItemRef={activeItemRef}
+            showAppLink={false}
+          />
+        </div>
+      </dialog>
       <aside className="admin-sidebar">
         <a className="brand" href="/" aria-label="Volver a explorar">
           <PitchMark />
           <span>NEW MATCH</span>
         </a>
         <div className="admin-sidebar__label">OPERACIONES</div>
-        <nav>
-          {navItems.map(([id, label, icon]) => {
-            const itemAttention = id === "subscriptions" ? attention : null;
-            return (
-              <button
-                className={`admin-nav-item${activeSection === id ? " is-active" : ""}`}
-                key={id}
-                type="button"
-                aria-label={
-                  itemAttention ? `${label}. ${itemAttention.label}` : undefined
-                }
-                onClick={() => changeAdminSection(id)}
-              >
-                <Icon name={icon} size={18} />
-                <span>{label}</span>
-                {itemAttention && (
-                  <span
-                    className={`subscription-attention subscription-attention--${itemAttention.tone}`}
-                    aria-hidden="true"
-                  >
-                    Atención
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-        <div className="admin-sidebar__bottom">
-          <a className="admin-nav-item" href="/">
-            <Icon name="back" size={18} />
-            <span>Ver aplicación</span>
-          </a>
-          <button className="admin-nav-item" type="button" onClick={logout}>
-            <Icon name="logout" size={18} />
-            <span>Salir</span>
-          </button>
-          <div className="admin-profile">
-            <span>{profile.name?.slice(0, 2).toUpperCase()}</span>
-            <div>
-              <strong>{profile.name}</strong>
-              <small>
-                {isSuperadmin ? "Superadministrador" : profile.role === "subadmin" ? "Subadministrador" : "Administrador"}
-              </small>
-            </div>
-          </div>
-        </div>
+        <AdminNavContent {...navContentProps} />
       </aside>
       <main className="admin-main">
         <header className="admin-topbar">
@@ -2301,30 +2535,30 @@ export default function PanelAdmin() {
           <>
             <section className="admin-stats">
               <div className="admin-stat admin-stat--primary">
-                <span>TURNOS DE HOY</span>
+                <span className="admin-stat__label">TURNOS DE HOY</span>
                 <strong>{overviewMetrics.todayBookings}</strong>
-                <small>Agenda de tus canchas</small>
+                <small className="admin-stat__description">Agenda de tus canchas</small>
               </div>
               <div className="admin-stat">
-                <span>COMPLEJOS PUBLICADOS</span>
+                <span className="admin-stat__label">COMPLEJOS PUBLICADOS</span>
                 <strong>{publishedComplexes.length}</strong>
-                <small>{publishedCourts.length} canchas publicadas</small>
+                <small className="admin-stat__description">{publishedCourts.length} canchas publicadas</small>
               </div>
               <div className="admin-stat">
-                <span>INGRESOS DE HOY</span>
+                <span className="admin-stat__label">INGRESOS DE HOY</span>
                 <strong className="admin-stat__money">
                   <span>$</span>
                   {overviewMetrics.todayIncome.toLocaleString("es-AR")}
                 </strong>
-                <small>Turnos confirmados</small>
+                <small className="admin-stat__description">Turnos confirmados</small>
               </div>
               <div className="admin-stat">
-                <span>INGRESOS ESTE MES</span>
+                <span className="admin-stat__label">INGRESOS ESTE MES</span>
                 <strong className="admin-stat__money">
                   <span>$</span>
                   {overviewMetrics.monthIncome.toLocaleString("es-AR")}
                 </strong>
-                <small>Turnos confirmados</small>
+                <small className="admin-stat__description">Turnos confirmados</small>
               </div>
             </section>
             <section className="admin-bookings-section">

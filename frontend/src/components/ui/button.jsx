@@ -11,6 +11,7 @@ const buttonVariants = cva(
         default: 'bg-[var(--grass)] text-[var(--warm)] hover:bg-[#208b55] hover:-translate-y-px',
         secondary: 'border border-[var(--line-strong)] bg-transparent text-[var(--lime)] hover:border-[rgba(183,238,85,.55)] hover:bg-[rgba(183,238,85,.06)]',
         ghost: 'bg-transparent text-[var(--lime)] hover:bg-[rgba(183,238,85,.08)]',
+        destructive: 'bg-[#b83f3f] text-[#fff] hover:bg-[#d65454] hover:-translate-y-px focus-visible:ring-[#e87966]',
         chip: 'min-h-[35px] rounded-[8px] border border-[var(--line)] bg-transparent px-[11px] text-[11px] font-bold text-[var(--muted)] hover:border-[var(--line-strong)] hover:text-[var(--warm)]',
         chipActive: 'min-h-[35px] rounded-[8px] border border-[rgba(183,238,85,.7)] bg-[rgba(183,238,85,.08)] px-[11px] text-[11px] font-bold text-[var(--lime)]',
       },
