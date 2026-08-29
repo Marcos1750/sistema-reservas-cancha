@@ -138,6 +138,16 @@ h1, h2, h3, p { margin: 0; }.welcome-block h1, .page-heading h1 { max-width: 620
 @media (max-width: 430px) { .welcome-block h1 { font-size: 38px; }.search-field kbd { display: none; }.court-placeholder { min-height: 128px; }.court-card__facts { gap: 5px; }.court-card__facts span { font-size: 9px; padding: 5px 6px; }.booking-summary { grid-template-columns: 96px 1fr; }.booking-summary .court-placeholder { min-height: 88px; }.sticky-cta { gap: 10px; }.sticky-cta .primary-button { padding: 0 13px; }.sticky-cta--booking .primary-button { min-width: 0; }.success-ticket strong { font-size: 10px; }.success-ticket small { font-size: 8px; } }
 @media (max-width: 560px) { .availability-state { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; }.availability-state button { grid-column: 2; justify-self: start; } }
 .form-success { margin-top: 16px; color: var(--lime); font-size: 12px; }
+
+/* Feedback stays with the action that produced it, including in compact mobile CTAs. */
+.action-feedback { width: 100%; margin: 10px 0 0; padding: 9px 11px; border: 1px solid rgba(158, 226, 79, .3); border-radius: 9px; background: rgba(158, 226, 79, .08); color: var(--lime); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.action-feedback--error { border-color: rgba(232, 121, 102, .42); background: rgba(232, 121, 102, .09); color: #f0a499; }
+.admin-action-stack { display: grid; justify-items: end; gap: 8px; }
+.admin-action-stack .action-feedback { max-width: 340px; margin: 0; }
+.sticky-cta--booking { flex-wrap: wrap; }
+.sticky-cta--booking .sticky-cta__feedback { flex-basis: 100%; margin: 0; }
+.app-shell--booking .booking-content { padding-bottom: 214px; }
+@media (max-width: 780px) { .admin-action-stack { width: 100%; justify-items: stretch; }.admin-action-stack > .secondary-button { width: 100%; } }
 .booking-payment-notice { margin-top: 18px; color: var(--lime); font-size: 12px; font-weight: 700; line-height: 1.45; }
 .recurring-option { display: grid; gap: 11px; margin-top: 22px; padding: 14px; border: 1px solid rgba(183,238,85,.24); border-radius: 12px; background: rgba(18,49,38,.34); }.recurring-option > label:first-child { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin: 0; cursor: pointer; }.recurring-option input { width: 17px; min-height: 17px; margin-top: 2px; accent-color: var(--lime); }.recurring-option strong, .recurring-option small { display: block; }.recurring-option strong { color: var(--warm); font-size: 12px; }.recurring-option small { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }.recurring-option__weeks { display: grid !important; grid-template-columns: 1fr minmax(116px, 144px); align-items: center; gap: 10px; margin: 0 !important; }.recurring-option select { min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; outline: 0; background: var(--surface); color: var(--warm); font: inherit; font-size: 11px; }.recurring-option select:focus { border-color: var(--lime); }
 .date-picker-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

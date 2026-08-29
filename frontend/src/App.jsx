@@ -8,6 +8,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Reservas />} />
+        <Route path="/complejos/:slug" element={<Reservas />} />
         <Route path="/admin" element={<PanelAdmin />} />
         <Route path="/planes" element={<Planes />} />
         <Route path="*" element={<Navigate to="/" replace />} />

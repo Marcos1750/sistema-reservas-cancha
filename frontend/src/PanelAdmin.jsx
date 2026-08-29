@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CalendarPicker } from "./CalendarPicker";
 import { TimePicker } from "./TimePicker";
+import { ActionFeedback } from "./ActionFeedback";
 import { Icon, PitchMark } from "./icons";
 import { authClient } from "./authClient";
 import { apiFetch, readApiResponse } from "./api";
@@ -199,6 +200,7 @@ function SlotEditor({ court, request, readOnly = false }) {
   const [block, setBlock] = useState({ fecha: "", motivo: "" });
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
+  const [messageArea, setMessageArea] = useState("schedule");
   const [quickSchedule, setQuickSchedule] = useState({
     days: [1, 2, 3, 4, 5],
     start: "18:00",
@@ -221,14 +223,16 @@ function SlotEditor({ court, request, readOnly = false }) {
       () =>
         load().catch((error) => {
           setMessageType("error");
+          setMessageArea("schedule");
           setMessage(error.message);
         }),
       0,
     );
     return () => window.clearTimeout(timer);
   }, [load]);
-  const showMessage = (text, type = "success") => {
+  const showMessage = (text, type = "success", area = "schedule") => {
     setMessageType(type);
+    setMessageArea(area);
     setMessage(text);
   };
   const updateSlot = (index, field, value) =>
@@ -301,6 +305,8 @@ function SlotEditor({ court, request, readOnly = false }) {
     );
     showMessage(
       `Se prepararon ${generated.length} horarios. Guardalos para aplicarlos.`,
+      "success",
+      "quick",
     );
   };
   const saveSlots = async () => {
@@ -309,9 +315,9 @@ function SlotEditor({ court, request, readOnly = false }) {
         method: "PUT",
         body: JSON.stringify({ slots }),
       });
-      showMessage("Horarios y precios guardados.");
+      showMessage("Horarios y precios guardados.", "success", "schedule");
     } catch (error) {
-      showMessage(error.message, "error");
+      showMessage(error.message, "error", "schedule");
     }
   };
   const saveException = async (event) => {
@@ -329,9 +335,9 @@ function SlotEditor({ court, request, readOnly = false }) {
         available: false,
       });
       await load();
-      showMessage("Excepción guardada.");
+      showMessage("Excepción guardada.", "success", "exception");
     } catch (error) {
-      showMessage(error.message, "error");
+      showMessage(error.message, "error", "exception");
     }
   };
   const saveBlock = async (event) => {
@@ -343,9 +349,9 @@ function SlotEditor({ court, request, readOnly = false }) {
       });
       setBlock({ fecha: "", motivo: "" });
       await load();
-      showMessage("Día bloqueado para esta cancha.");
+      showMessage("Día bloqueado para esta cancha.", "success", "block");
     } catch (error) {
-      showMessage(error.message, "error");
+      showMessage(error.message, "error", "block");
     }
   };
   const removeBlock = async (item) => {
@@ -355,9 +361,9 @@ function SlotEditor({ court, request, readOnly = false }) {
         method: "DELETE",
       });
       await load();
-      showMessage("Día desbloqueado.");
+      showMessage("Día desbloqueado.", "success", "blocks");
     } catch (error) {
-      showMessage(error.message, "error");
+      showMessage(error.message, "error", "blocks");
     }
   };
   return (
@@ -368,14 +374,17 @@ function SlotEditor({ court, request, readOnly = false }) {
             <span className="section-kicker">OPERACIÓN DE CANCHA</span>
             <h2>{court.nombre}</h2>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            onClick={saveSlots}
-          >
-            Guardar horarios
-          </Button>
+          <div className="admin-action-stack">
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={saveSlots}
+            >
+              Guardar horarios
+            </Button>
+            <ActionFeedback message={messageArea === "schedule" ? message : ""} tone={messageType} />
+          </div>
         </div>
         <section
           className="quick-schedule"
@@ -463,6 +472,7 @@ function SlotEditor({ court, request, readOnly = false }) {
               Aplicar horario
             </Button>
           </div>
+          <ActionFeedback message={messageArea === "quick" ? message : ""} tone={messageType} />
           <small>
             Reemplaza solo los horarios de los días elegidos. Después tocá
             “Guardar horarios”.
@@ -594,6 +604,7 @@ function SlotEditor({ court, request, readOnly = false }) {
             <Button variant="secondary" size="sm" type="submit">
               Guardar excepción
             </Button>
+            <ActionFeedback message={messageArea === "exception" ? message : ""} tone={messageType} />
           </form>
           <form className="admin-form" onSubmit={saveBlock}>
             <h3>Bloquear día completo</h3>
@@ -612,6 +623,7 @@ function SlotEditor({ court, request, readOnly = false }) {
             <Button variant="secondary" size="sm" type="submit">
               Bloquear día
             </Button>
+            <ActionFeedback message={messageArea === "block" ? message : ""} tone={messageType} />
           </form>
         </div>
         {exceptions.length > 0 && (
@@ -641,27 +653,23 @@ function SlotEditor({ court, request, readOnly = false }) {
           </div>
         )}
         {blocks.length > 0 && (
-          <div className="admin-exception-list">
-            {blocks.map((item) => (
-              <div key={item.id}>
-                <span>
-                  {item.fecha} · {item.motivo || "Día bloqueado"}
-                </span>
-                <button type="button" onClick={() => removeBlock(item)}>
-                  Desbloquear
-                </button>
-              </div>
-            ))}
+          <div>
+            <div className="admin-exception-list">
+              {blocks.map((item) => (
+                <div key={item.id}>
+                  <span>
+                    {item.fecha} · {item.motivo || "Día bloqueado"}
+                  </span>
+                  <button type="button" onClick={() => removeBlock(item)}>
+                    Desbloquear
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
+        <ActionFeedback message={messageArea === "blocks" ? message : ""} tone={messageType} />
       </fieldset>
-      {message && (
-        <p
-          className={messageType === "success" ? "form-success" : "form-error"}
-        >
-          {message}
-        </p>
-      )}
     </section>
   );
 }
@@ -1012,18 +1020,10 @@ function MercadoPagoSettings({ complex, request, readOnly = false }) {
       ) : (
         <p>Consultando la configuración de pagos…</p>
       )}
-      {message && (
-        <p
-          className={
-            message.includes("actualizado") || message.includes("desconectado")
-              ? "form-success"
-              : "form-error"
-          }
-          role="status"
-        >
-          {message}
-        </p>
-      )}
+      <ActionFeedback
+        message={message}
+        tone={message.includes("actualizado") || message.includes("desconectado") ? "success" : "error"}
+      />
     </section>
   );
 }
@@ -1040,6 +1040,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
   const [editPhoto, setEditPhoto] = useState(null);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
+  const [messageArea, setMessageArea] = useState("create");
   const [saving, setSaving] = useState(false);
   const selectComplex = (complex) => {
     setSelectedComplex(complex);
@@ -1076,8 +1077,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
     complexes.some((complex) => complex.suspendido_suscripcion);
   const complexReadOnly =
     !isSuperadmin && Boolean(activeComplex?.suspendido_suscripcion);
-  const show = (text, type = "success") => {
+  const show = (text, type = "success", area = "create") => {
     setMessageType(type);
+    setMessageArea(area);
     setMessage(text);
   };
   const courtPayload = (court) => {
@@ -1105,9 +1107,11 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       await reload();
       show(
         "Complejo creado. Ya podés configurar los horarios de su primera cancha.",
+        "success",
+        "create",
       );
     } catch (error) {
-      show(error.message, "error");
+      show(error.message, "error", "create");
     } finally {
       setSaving(false);
     }
@@ -1125,9 +1129,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       });
       setEditPhoto(null);
       await reload();
-      show("Datos del complejo actualizados.");
+      show("Datos del complejo actualizados.", "success", "complex");
     } catch (error) {
-      show(error.message, "error");
+      show(error.message, "error", "complex");
     } finally {
       setSaving(false);
     }
@@ -1148,10 +1152,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       setSelectedComplex(null);
       setSelectedCourt(null);
       await reload();
-      show("Complejo eliminado definitivamente.");
+      show("Complejo eliminado definitivamente.", "success", "complex");
     } catch (error) {
-      show(error.message, "error");
-      window.alert(`No se pudo eliminar el complejo: ${error.message}`);
+      show(error.message, "error", "complex");
     } finally {
       setSaving(false);
     }
@@ -1169,9 +1172,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       });
       setNewCourt(emptyCourt);
       await reload();
-      show("Cancha agregada. Configurá sus horarios y precios.");
+      show("Cancha agregada. Configurá sus horarios y precios.", "success", "create-court");
     } catch (error) {
-      show(error.message, "error");
+      show(error.message, "error", "create-court");
     }
   };
   const saveCourt = async (event) => {
@@ -1182,9 +1185,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
         body: JSON.stringify(courtPayload(courtEdit)),
       });
       await reload();
-      show("Datos de la cancha actualizados.");
+      show("Datos de la cancha actualizados.", "success", "court");
     } catch (error) {
-      show(error.message, "error");
+      show(error.message, "error", "court");
     }
   };
   const deleteCourt = async () => {
@@ -1200,9 +1203,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       });
       setSelectedCourt(null);
       await reload();
-      show("Cancha eliminada definitivamente.");
+      show("Cancha eliminada definitivamente.", "success", "court");
     } catch (error) {
-      show(error.message, "error");
+      show(error.message, "error", "court");
     }
   };
   return (
@@ -1260,14 +1263,8 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
         <Button type="submit" disabled={saving || creationReadOnly}>
           {saving ? "Creando complejo…" : "Crear complejo y cancha"}
         </Button>
+        <ActionFeedback message={messageArea === "create" ? message : ""} tone={messageType} />
       </form>
-      {message && (
-        <p
-          className={messageType === "success" ? "form-success" : "form-error"}
-        >
-          {message}
-        </p>
-      )}
       <div className="admin-complex-list">
         {complexes.map((complex) => {
           const complexSports = complex.canchas.map((court) => court.deporte);
@@ -1367,6 +1364,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
             >
               Guardar complejo
             </Button>
+            <ActionFeedback message={messageArea === "complex" ? message : ""} tone={messageType} />
           </form>
           {canManageFinances && (
             <MercadoPagoSettings
@@ -1400,6 +1398,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
               <Button type="submit" disabled={complexReadOnly}>
                 Agregar cancha
               </Button>
+              <ActionFeedback message={messageArea === "create-court" ? message : ""} tone={messageType} />
             </form>
             <div className="admin-court-list-section">
               <h3>Canchas creadas</h3>
@@ -1470,6 +1469,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
                   >
                     Guardar cancha
                   </Button>
+                  <ActionFeedback message={messageArea === "court" ? message : ""} tone={messageType} />
                 </form>
                 <SlotEditor
                   key={selectedCourt.id}
@@ -1523,15 +1523,10 @@ function SuperadminManager({ admins, request, reload }) {
         />
         <Button type="submit">Autorizar administrador</Button>
       </form>
-      {message && (
-        <p
-          className={
-            message.includes("autorizado") ? "form-success" : "form-error"
-          }
-        >
-          {message}
-        </p>
-      )}
+      <ActionFeedback
+        message={message}
+        tone={message.includes("autorizado") ? "success" : "error"}
+      />
       <div className="admin-access-list">
         {admins.map((admin) => (
           <div
@@ -1636,11 +1631,10 @@ function SubadminManager({ subadmins, request, reload }) {
         />
         <Button type="submit">Agregar subadmin</Button>
       </form>
-      {message && (
-        <p className={message.includes("acceso") || message.includes("Invitación") ? "form-success" : "form-error"} role="status">
-          {message}
-        </p>
-      )}
+      <ActionFeedback
+        message={message}
+        tone={message.includes("acceso") || message.includes("Invitación") ? "success" : "error"}
+      />
       <div className="admin-access-list">
         {subadmins.length ? subadmins.map((member) => (
           <div key={member.id} className="admin-access-row">
@@ -1951,18 +1945,6 @@ function SubscriptionManager({ isSuperadmin, request }) {
           <h2>Suscripciones</h2>
         </div>
       </div>
-      {message && (
-        <p
-          className={
-            message.includes("correctamente") || message.includes("creado")
-              ? "form-success"
-              : "form-error"
-          }
-          role="status"
-        >
-          {message}
-        </p>
-      )}
       {!isSuperadmin && (
         <SubscriptionStatus
           subscription={subscription}
@@ -1997,6 +1979,10 @@ function SubscriptionManager({ isSuperadmin, request }) {
               <Button type="submit" disabled={busy}>
                 Crear usuario gratuito
               </Button>
+              <ActionFeedback
+                message={message}
+                tone={message.includes("creado") ? "success" : "error"}
+              />
             </form>
           </section>
           <div className="subscription-list">
@@ -2167,7 +2153,6 @@ export default function PanelAdmin() {
       await reload();
     } catch (requestError) {
       setError(requestError.message);
-      window.alert(`No se pudo cancelar la reserva: ${requestError.message}`);
     }
   };
   const hideHistoryBooking = async (id) => {
@@ -2178,7 +2163,6 @@ export default function PanelAdmin() {
       await reload();
     } catch (requestError) {
       setError(requestError.message);
-      window.alert(`No se pudo quitar del historial: ${requestError.message}`);
     }
   };
   if (isPending || (session?.user && profile === null))
