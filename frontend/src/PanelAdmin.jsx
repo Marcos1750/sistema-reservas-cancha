@@ -2186,6 +2186,7 @@ export default function PanelAdmin() {
   const menuButtonRef = useRef(null);
   const activeItemRef = useRef(null);
   const wasMenuOpenRef = useRef(false);
+  const drawerCloseTimerRef = useRef(null);
   const request = useCallback(
     async (path, options) =>
       demo
@@ -2248,30 +2249,38 @@ export default function PanelAdmin() {
     const timer = window.setInterval(() => setAgendaNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  /* El <dialog> nativo aporta modalidad, foco atrapado y cierre con Escape.
-     El foco se coloca acá —después de showModal/close— para no depender del
-     orden en que el navegador restaura el foco previo. */
+  /* El <dialog> nativo aporta modalidad y foco atrapado. Al cerrar se mantiene
+     abierto un instante para que la salida use la misma transición que la entrada. */
   useEffect(() => {
     const drawer = drawerRef.current;
     if (!drawer) return;
     if (menuOpen) {
+      window.clearTimeout(drawerCloseTimerRef.current);
+      delete drawer.dataset.closing;
       if (!drawer.open) drawer.showModal();
       (activeItemRef.current || drawer.querySelector(".admin-nav-item"))?.focus();
       wasMenuOpenRef.current = true;
       return;
     }
-    if (drawer.open) drawer.close();
-    if (!wasMenuOpenRef.current) return;
-    wasMenuOpenRef.current = false;
-    /* Si el drawer se cerró al pasar a tablet, el botón ya no existe en pantalla. */
-    if (menuButtonRef.current?.offsetParent) menuButtonRef.current.focus();
+    if (!drawer.open) return;
+    drawer.dataset.closing = "true";
+    const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200;
+    drawerCloseTimerRef.current = window.setTimeout(() => drawer.close(), closeDelay);
+    return () => window.clearTimeout(drawerCloseTimerRef.current);
   }, [menuOpen]);
   /* El evento "close" no burbujea, así que React no lo entrega por onClose:
      sin este listener el estado quedaría abierto y el menú no volvería a abrirse. */
   useEffect(() => {
     const drawer = drawerRef.current;
     if (!drawer) return undefined;
-    const syncClosed = () => setMenuOpen(false);
+    const syncClosed = () => {
+      setMenuOpen(false);
+      delete drawer.dataset.closing;
+      if (!wasMenuOpenRef.current) return;
+      wasMenuOpenRef.current = false;
+      /* Si el drawer se cerró al pasar a tablet, el botón ya no existe en pantalla. */
+      if (menuButtonRef.current?.offsetParent) menuButtonRef.current.focus();
+    };
     drawer.addEventListener("close", syncClosed);
     return () => drawer.removeEventListener("close", syncClosed);
   }, []);
@@ -2468,8 +2477,9 @@ export default function PanelAdmin() {
         id="admin-drawer"
         ref={drawerRef}
         aria-labelledby="admin-drawer-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") closeAdminMenu();
+        onCancel={(event) => {
+          event.preventDefault();
+          closeAdminMenu();
         }}
         onClick={(event) => {
           if (event.target === drawerRef.current) closeAdminMenu();

@@ -1224,9 +1224,11 @@ body { min-width: 0; overflow-x: clip; }
 .admin-drawer .admin-profile strong { font-size: 12px; }
 .admin-drawer .admin-profile small { font-size: 10px; }
 
-/* Apertura breve, sólo opacity/transform; el cierre es inmediato. */
+/* El drawer permanece montado durante la salida para que no se corte la animación. */
 .admin-drawer[open] { opacity: 1; transform: translateX(0); transition: opacity .2s ease, transform .2s ease; }
 .admin-drawer[open]::backdrop { opacity: 1; transition: opacity .2s ease; }
+.admin-drawer[open][data-closing="true"] { pointer-events: none; opacity: 0; transform: translateX(14px); }
+.admin-drawer[open][data-closing="true"]::backdrop { opacity: 0; }
 
 @starting-style {
   .admin-drawer[open] { opacity: 0; transform: translateX(14px); }
