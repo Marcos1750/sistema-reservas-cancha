@@ -16,6 +16,7 @@ import {
 } from "./lib/adminOverview";
 import { getComplexTheme, getSportTheme } from "./sportTheme";
 import { useSessionWithFallback } from "./useSessionWithFallback";
+import { LoadingScreen } from "./LoadingScreen";
 import {
   demoRequest,
   disableDemoAdmin,
@@ -2382,11 +2383,7 @@ export default function PanelAdmin() {
     }
   };
   if (demo ? profile === null : isPending || (session?.user && profile === null))
-    return (
-      <div className="admin-login">
-        <div className="admin-login__card">Cargando el panel…</div>
-      </div>
-    );
+    return <LoadingScreen message="Preparando el panel…" />;
   if (!demo && !session?.user)
     return <GoogleAccess onLogin={login} onDemo={startDemo} />;
   if (profile === false)

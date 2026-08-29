@@ -16,6 +16,7 @@ import { authClient } from './authClient';
 import { apiFetch, readApiResponse } from './api';
 import { getComplexTheme, getSportTheme, getUniqueSports } from './sportTheme';
 import { useSessionWithFallback } from './useSessionWithFallback';
+import { LoadingScreen } from './LoadingScreen';
 
 function toDateValue(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -459,7 +460,7 @@ export default function Reservas() {
   const logout = async () => { await authClient.signOut(); setScreen('explore'); };
   const saveProfile = async (draft) => { const nextProfile = await readApiResponse(await apiFetch('/api/perfil', { method: 'PUT', body: JSON.stringify(draft) })); setProfile(nextProfile); };
 
-  if (isPending) return <div className="quiet-panel">Cargando tu sesión…</div>;
+  if (isPending) return <LoadingScreen message="Preparando tu sesión…" />;
   const canManage = Boolean(sessionUserId) && ['admin_cancha', 'subadmin', 'superadmin'].includes(profile?.role);
   const layout = (current, child, showMobileNav = false) => <PublicLayout current={current} onChange={setScreen} session={session} canManage={canManage} showMobileNav={showMobileNav}>{child}</PublicLayout>;
   if (pendingCheckout) return <PaymentScreen payment={pendingCheckout} onCancel={cancelPendingCheckout} />;
