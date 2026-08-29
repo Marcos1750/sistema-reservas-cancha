@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useConfirm } from './lib/confirmDialog';
 import { Icon, PitchMark } from './icons';
 import { CalendarPicker } from './CalendarPicker';
 import { ActionFeedback } from './ActionFeedback';
@@ -273,6 +274,7 @@ export default function Reservas() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { data: session, isPending } = useSessionWithFallback();
+  const confirm = useConfirm();
   const sessionUserId = session?.user?.id;
   const [screen, setScreen] = useState(() => new URLSearchParams(window.location.search).has('pago') ? 'bookings' : 'explore');
   const [complexes, setComplexes] = useState([]);
@@ -449,8 +451,8 @@ export default function Reservas() {
     } catch (requestError) { setError(requestError.message); } finally { setSubmittingBooking(false); }
   };
   const backToExplore = () => { setScreen('explore'); setSelectedComplex(null); setSelectedCourt(null); setSelectedTime(''); setError(''); setForm((current) => ({ ...current, phone: '' })); setRepeatWeekly(false); setRepeatWeeks(4); navigate('/'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const cancelBooking = async (booking) => { if (!window.confirm(`¿Querés cancelar ${booking.status === 'Pendiente de pago' ? 'esta solicitud de pago' : `tu turno en ${booking.complex}`}?`)) return null; setError(''); try { const result = await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' })); setBookings((current) => current.map((item) => item.id === booking.id || (result.recurrencia_id && item.recurrenceId === result.recurrencia_id) ? { ...item, status: 'Cancelado', canCancel: false, paymentUrl: '' } : item)); return { tone: 'success', message: 'La reserva fue cancelada.' }; } catch (requestError) { setError(requestError.message); return { tone: 'error', message: requestError.message }; } };
-  const cancelPendingCheckout = async () => { if (!pendingCheckout) return; const booking = { id: pendingCheckout.reservationId, complex: pendingCheckout.complex, status: 'Pendiente de pago' }; if (!window.confirm('¿Querés cancelar esta solicitud y liberar el horario?')) return; setError(''); try { await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' })); setPendingCheckout(null); setScreen('bookings'); const items = await readApiResponse(await apiFetch('/api/mis-reservas')); setBookings(items.map(mapApiBooking)); } catch (requestError) { setError(requestError.message); } };
+  const cancelBooking = async (booking) => { const isPayment = booking.status === 'Pendiente de pago'; if (!(await confirm({ title: isPayment ? '¿Cancelar la solicitud de pago?' : '¿Cancelar tu turno?', description: isPayment ? 'Se cancela la solicitud y el horario vuelve a quedar disponible para otras personas.' : `Vas a cancelar tu turno en ${booking.complex}. El horario queda libre y no se puede deshacer.`, confirmText: isPayment ? 'Cancelar solicitud' : 'Cancelar turno', cancelText: 'Volver', tone: 'danger' }))) return null; setError(''); try { const result = await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' })); setBookings((current) => current.map((item) => item.id === booking.id || (result.recurrencia_id && item.recurrenceId === result.recurrencia_id) ? { ...item, status: 'Cancelado', canCancel: false, paymentUrl: '' } : item)); return { tone: 'success', message: 'La reserva fue cancelada.' }; } catch (requestError) { setError(requestError.message); return { tone: 'error', message: requestError.message }; } };
+  const cancelPendingCheckout = async () => { if (!pendingCheckout) return; const booking = { id: pendingCheckout.reservationId, complex: pendingCheckout.complex, status: 'Pendiente de pago' }; if (!(await confirm({ title: '¿Cancelar esta solicitud?', description: 'Se cancela la solicitud de pago y el horario vuelve a quedar disponible para otras personas.', confirmText: 'Cancelar solicitud', cancelText: 'Volver', tone: 'danger' }))) return; setError(''); try { await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' })); setPendingCheckout(null); setScreen('bookings'); const items = await readApiResponse(await apiFetch('/api/mis-reservas')); setBookings(items.map(mapApiBooking)); } catch (requestError) { setError(requestError.message); } };
   const logout = async () => { await authClient.signOut(); setScreen('explore'); };
   const saveProfile = async (draft) => { const nextProfile = await readApiResponse(await apiFetch('/api/perfil', { method: 'PUT', body: JSON.stringify(draft) })); setProfile(nextProfile); };
 

@@ -1,0 +1,12 @@
+{
+  "name": "NEW MATCH",
+  "short_name": "NEW MATCH",
+  "start_url": "/",
+  "background_color": "#0B0E0C",
+  "theme_color": "#0B0E0C",
+  "display": "standalone",
+  "icons": [
+    { "src": "/app-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
