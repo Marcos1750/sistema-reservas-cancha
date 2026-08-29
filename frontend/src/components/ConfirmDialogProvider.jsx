@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
+import { ConfirmDialogContext } from '@/lib/confirmDialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,8 +11,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-
-const ConfirmDialogContext = createContext(null);
 
 /* Reemplaza window.confirm/window.alert por un modal del sistema de diseño.
    La promesa se resuelve con la elección para no cambiar el flujo de los
@@ -77,18 +76,4 @@ export function ConfirmDialogProvider({ children }) {
       </AlertDialog>
     </ConfirmDialogContext.Provider>
   );
-}
-
-function useConfirmDialogs() {
-  const context = useContext(ConfirmDialogContext);
-  if (!context) throw new Error('Falta <ConfirmDialogProvider> arriba en el árbol.');
-  return context;
-}
-
-export function useConfirm() {
-  return useConfirmDialogs().confirm;
-}
-
-export function useAlert() {
-  return useConfirmDialogs().alert;
 }

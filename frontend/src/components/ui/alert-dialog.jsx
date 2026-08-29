@@ -52,7 +52,10 @@ function AlertDialogFooter({ className, ...props }) {
   return (
     <div
       data-slot="alert-dialog-footer"
-      className={cn('flex flex-wrap justify-end gap-2.5 max-[520px]:grid max-[520px]:grid-cols-1', className)}
+      className={cn(
+        'flex flex-col-reverse gap-2.5 min-[521px]:flex-row min-[521px]:flex-wrap min-[521px]:justify-end',
+        className,
+      )}
       {...props}
     />
   );
