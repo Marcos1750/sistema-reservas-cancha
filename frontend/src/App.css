@@ -25,6 +25,7 @@
 body { background: radial-gradient(circle at 78% -10%, rgba(84, 142, 74, .16), transparent 31rem), var(--ink); color: var(--m3-on-surface); }
 .brand span { letter-spacing: -.055em; text-transform: uppercase; }
 .admin-entry { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; padding: 9px 13px; border: 1px solid rgba(183, 238, 85, .38); border-radius: 999px; color: var(--lime); background: rgba(25, 122, 73, .14); font-size: 12px; font-weight: 800; text-decoration: none; }
+.admin-entry__mobile { display: none; }
 .admin-entry:hover { background: rgba(25, 122, 73, .32); }
 .court-card, .admin-bookings-section, .admin-manager, .profile-form, .profile-links, .quick-schedule { border-color: var(--m3-outline); box-shadow: 0 12px 32px rgba(0, 0, 0, .13); }
 .court-card { border-radius: 22px; overflow: hidden; background: linear-gradient(145deg, rgba(25, 49, 38, .96), rgba(15, 26, 20, .96)); }
@@ -61,7 +62,9 @@ body { background: radial-gradient(circle at 78% -10%, rgba(84, 142, 74, .16), t
 
 @media (max-width: 700px) {
   .app-header { gap: 10px; }
-  .admin-entry { order: 3; padding: 8px 10px; font-size: 0; }
+  .admin-entry { order: 3; min-height: 36px; padding: 8px 14px; font-size: 11px; letter-spacing: .05em; }
+  .admin-entry__desktop { display: none; }
+  .admin-entry__mobile { display: inline; }
   .admin-entry svg { width: 18px; height: 18px; }
   .calendar-picker__popover { position: fixed; left: 50%; right: auto; top: auto; bottom: calc(var(--nav-height) + 18px); transform: translateX(-50%); width: min(92vw, 340px); }
   .admin-shell .calendar-picker__popover { position: absolute; left: 0; bottom: auto; transform: none; }
