@@ -204,6 +204,41 @@ function AdminTable({ bookings, onCancel, onHideHistory, mode = "upcoming", now 
   );
 }
 
+function AdminDisclosure({
+  id,
+  title,
+  description,
+  meta,
+  open,
+  onToggle,
+  children,
+  className = "",
+}) {
+  return (
+    <section className={`admin-disclosure${open ? " is-open" : ""}${className ? ` ${className}` : ""}`}>
+      <button
+        className="admin-disclosure__trigger"
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={onToggle}
+      >
+        <span className="admin-disclosure__copy">
+          <strong>{title}</strong>
+          {description && <small>{description}</small>}
+        </span>
+        <span className="admin-disclosure__aside">
+          {meta && <span className="admin-disclosure__meta">{meta}</span>}
+          <Icon name="down" size={19} className="admin-disclosure__icon" />
+        </span>
+      </button>
+      <div className="admin-disclosure__content" id={id} hidden={!open}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
 function SlotEditor({ court, request, readOnly = false }) {
   const confirm = useConfirm();
   const [slots, setSlots] = useState(defaultSlots);
@@ -220,6 +255,8 @@ function SlotEditor({ court, request, readOnly = false }) {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
   const [messageArea, setMessageArea] = useState("schedule");
+  const [activeDay, setActiveDay] = useState(null);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [quickSchedule, setQuickSchedule] = useState({
     days: [1, 2, 3, 4, 5],
     start: "18:00",
@@ -260,6 +297,15 @@ function SlotEditor({ court, request, readOnly = false }) {
         position === index ? { ...slot, [field]: value } : slot,
       ),
     );
+  const moveSlotToDay = (index, dayOfWeek) => {
+    updateSlot(index, "dayOfWeek", dayOfWeek);
+    setActiveDay(dayOfWeek);
+  };
+  const addSlotForDay = (dayOfWeek) =>
+    setSlots((current) => [
+      ...current,
+      { ...defaultSlots[0], dayOfWeek },
+    ]);
   const toggleQuickDay = (day) =>
     setQuickSchedule((current) => ({
       ...current,
@@ -393,12 +439,13 @@ function SlotEditor({ court, request, readOnly = false }) {
     }
   };
   return (
-    <section className="admin-manager">
+    <section className="admin-manager admin-court-operations">
       <fieldset className="admin-readonly-fieldset" disabled={readOnly}>
         <div className="admin-section-heading">
           <div>
-            <span className="section-kicker">OPERACIÓN DE CANCHA</span>
-            <h2>{court.nombre}</h2>
+            <span className="section-kicker">CONFIGURACIÓN DE TURNOS</span>
+            <h2>Horarios y precios</h2>
+            <p>Organizados por día para que encuentres y edites cada turno más rápido.</p>
           </div>
           <div className="admin-action-stack">
             <Button
@@ -504,85 +551,119 @@ function SlotEditor({ court, request, readOnly = false }) {
             “Guardar horarios”.
           </small>
         </section>
-        <div className="admin-slot-list">
-          {slots.map((slot, index) => (
-            <div
-              className="admin-slot-row"
-              key={`${slot.dayOfWeek}-${slot.start}-${index}`}
-            >
-              <select
-                aria-label="Día"
-                value={slot.dayOfWeek}
-                onChange={(event) =>
-                  updateSlot(index, "dayOfWeek", Number(event.target.value))
-                }
-              >
-                {weekdays.map((day, dayIndex) => (
-                  <option key={day} value={dayIndex}>
-                    {day}
-                  </option>
-                ))}
-              </select>
-              <TimePicker
-                aria-label="Hora inicial"
-                label="Hora inicial"
-                value={slot.start}
-                onChange={(start) =>
-                  updateSlot(index, "start", start)
-                }
-              />
-              <TimePicker
-                aria-label="Hora final"
-                label="Hora final"
-                value={slot.end}
-                onChange={(end) =>
-                  updateSlot(index, "end", end)
-                }
-              />
-              <Input
-                type="number"
-                min="0"
-                value={slot.price}
-                onChange={(event) =>
-                  updateSlot(index, "price", event.target.value)
-                }
-                aria-label="Precio"
-              />
-              <label>
-                <input
-                  type="checkbox"
-                  checked={slot.active !== false}
-                  onChange={(event) =>
-                    updateSlot(index, "active", event.target.checked)
-                  }
-                />{" "}
-                Activo
-              </label>
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() =>
-                  setSlots((current) =>
-                    current.filter((_, position) => position !== index),
-                  )
-                }
-              >
-                Quitar
-              </Button>
-            </div>
-          ))}
+        <div className="admin-day-list">
+          {weekdays.map((day, dayOfWeek) => {
+            const daySlots = slots
+              .map((slot, index) => ({ slot, index }))
+              .filter(({ slot }) => Number(slot.dayOfWeek) === dayOfWeek);
+            const dayOpen = activeDay === dayOfWeek;
+            const firstTime = daySlots[0]?.slot.start;
+            const lastTime = daySlots.at(-1)?.slot.end;
+            return (
+              <section className={`admin-day${dayOpen ? " is-open" : ""}`} key={day}>
+                <button
+                  className="admin-day__trigger"
+                  type="button"
+                  aria-expanded={dayOpen}
+                  aria-controls={`court-${court.id}-day-${dayOfWeek}`}
+                  onClick={() => setActiveDay(dayOpen ? null : dayOfWeek)}
+                >
+                  <span>
+                    <strong>{day}</strong>
+                    <small>
+                      {daySlots.length
+                        ? `${daySlots.length} ${daySlots.length === 1 ? "turno" : "turnos"} · ${firstTime}–${lastTime}`
+                        : "Sin horarios"}
+                    </small>
+                  </span>
+                  <Icon name="down" size={18} className="admin-day__icon" />
+                </button>
+                <div
+                  className="admin-day__content"
+                  id={`court-${court.id}-day-${dayOfWeek}`}
+                  hidden={!dayOpen}
+                >
+                  {daySlots.length ? (
+                    <div className="admin-slot-list">
+                      {daySlots.map(({ slot, index }) => (
+                        <div className="admin-slot-row" key={`${slot.start}-${slot.end}-${index}`}>
+                          <label>
+                            Día
+                            <select
+                              aria-label={`Día del horario ${slot.start}`}
+                              value={slot.dayOfWeek}
+                              onChange={(event) => moveSlotToDay(index, Number(event.target.value))}
+                            >
+                              {weekdays.map((weekday, weekdayIndex) => (
+                                <option key={weekday} value={weekdayIndex}>{weekday}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Desde
+                            <TimePicker
+                              label={`Hora inicial del ${day}`}
+                              value={slot.start}
+                              onChange={(start) => updateSlot(index, "start", start)}
+                            />
+                          </label>
+                          <label>
+                            Hasta
+                            <TimePicker
+                              label={`Hora final del ${day}`}
+                              value={slot.end}
+                              onChange={(end) => updateSlot(index, "end", end)}
+                            />
+                          </label>
+                          <label>
+                            Precio
+                            <Input
+                              type="number"
+                              min="0"
+                              value={slot.price}
+                              onChange={(event) => updateSlot(index, "price", event.target.value)}
+                              aria-label={`Precio del horario ${slot.start}`}
+                            />
+                          </label>
+                          <label className="admin-slot-row__active">
+                            <input
+                              type="checkbox"
+                              checked={slot.active !== false}
+                              onChange={(event) => updateSlot(index, "active", event.target.checked)}
+                            />
+                            Activo
+                          </label>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            type="button"
+                            onClick={() => setSlots((current) => current.filter((_, position) => position !== index))}
+                          >
+                            Quitar
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="admin-day__empty">Todavía no hay turnos configurados para este día.</p>
+                  )}
+                  <Button variant="secondary" size="sm" type="button" onClick={() => addSlotForDay(dayOfWeek)}>
+                    Agregar horario al {day.toLowerCase()}
+                  </Button>
+                </div>
+              </section>
+            );
+          })}
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          type="button"
-          onClick={() =>
-            setSlots((current) => [...current, { ...defaultSlots[0] }])
-          }
+        <AdminDisclosure
+          id={`court-${court.id}-availability`}
+          title="Excepciones y bloqueos"
+          description="Cambios puntuales de disponibilidad para fechas específicas."
+          meta={`${exceptions.length + blocks.length} configurados`}
+          open={availabilityOpen}
+          onToggle={() => setAvailabilityOpen((current) => !current)}
+          className="admin-availability"
         >
-          Agregar horario
-        </Button>
         <div className="admin-split">
           <form className="admin-form" onSubmit={saveException}>
             <h3>Excepción por fecha</h3>
@@ -695,6 +776,7 @@ function SlotEditor({ court, request, readOnly = false }) {
           </div>
         )}
         <ActionFeedback message={messageArea === "blocks" ? message : ""} tone={messageType} />
+        </AdminDisclosure>
       </fieldset>
     </section>
   );
@@ -1075,6 +1157,11 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
   const [messageType, setMessageType] = useState("success");
   const [messageArea, setMessageArea] = useState("create");
   const [saving, setSaving] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [complexInfoOpen, setComplexInfoOpen] = useState(false);
+  const [paymentsOpen, setPaymentsOpen] = useState(false);
+  const [addCourtOpen, setAddCourtOpen] = useState(false);
+  const [courtInfoOpen, setCourtInfoOpen] = useState(false);
   const selectComplex = (complex) => {
     setSelectedComplex(complex);
     setSelectedCourt(null);
@@ -1088,6 +1175,10 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       foto_url: complex.foto_url || "",
     });
     setEditPhoto(null);
+    setComplexInfoOpen(false);
+    setPaymentsOpen(false);
+    setAddCourtOpen(false);
+    setCourtInfoOpen(false);
   };
   const selectCourt = (court) => {
     setSelectedCourt(court);
@@ -1098,6 +1189,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       indoor: Boolean(court.indoor),
       requiere_sena: court.requiere_sena !== false,
     });
+    setCourtInfoOpen(false);
   };
   const activeComplex =
     complexes.find((item) => item.id === selectedComplex?.id) ||
@@ -1143,7 +1235,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
         "success",
         "create",
       );
+      setCreateOpen(false);
     } catch (error) {
+      setCreateOpen(true);
       show(error.message, "error", "create");
     } finally {
       setSaving(false);
@@ -1164,6 +1258,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       await reload();
       show("Datos del complejo actualizados.", "success", "complex");
     } catch (error) {
+      setComplexInfoOpen(true);
       show(error.message, "error", "complex");
     } finally {
       setSaving(false);
@@ -1215,7 +1310,9 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       setNewCourt(emptyCourt);
       await reload();
       show("Cancha agregada. Configurá sus horarios y precios.", "success", "create-court");
+      setAddCourtOpen(false);
     } catch (error) {
+      setAddCourtOpen(true);
       show(error.message, "error", "create-court");
     }
   };
@@ -1229,6 +1326,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
       await reload();
       show("Datos de la cancha actualizados.", "success", "court");
     } catch (error) {
+      setCourtInfoOpen(true);
       show(error.message, "error", "court");
     }
   };
@@ -1257,8 +1355,20 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
   return (
     <section className="admin-bookings-section admin-complexes">
       <div className="admin-section-heading">
-        <h2>Complejos y canchas</h2>
+        <div>
+          <span className="section-kicker">ESTRUCTURA DEL NEGOCIO</span>
+          <h2>Complejos y canchas</h2>
+          <p>Elegí un complejo para administrar toda su información desde un solo lugar.</p>
+        </div>
       </div>
+      <AdminDisclosure
+        id="admin-create-complex"
+        title="Agregar nuevo complejo"
+        description="Cargá el lugar y su primera cancha cuando lo necesites."
+        open={createOpen}
+        onToggle={() => setCreateOpen((current) => !current)}
+        className="admin-create-disclosure"
+      >
       <form
         className="admin-form admin-complex-create"
         onSubmit={createComplex}
@@ -1311,6 +1421,14 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
         </Button>
         <ActionFeedback message={messageArea === "create" ? message : ""} tone={messageType} />
       </form>
+      </AdminDisclosure>
+      <div className="admin-complex-list-heading">
+        <div>
+          <h3>Tus complejos</h3>
+          <p>Seleccioná uno para ver sus canchas y configuraciones.</p>
+        </div>
+        <span>{complexes.length} {complexes.length === 1 ? "complejo" : "complejos"}</span>
+      </div>
       <div className="admin-complex-list">
         {complexes.map((complex) => {
           const complexSports = complex.canchas.map((court) => court.deporte);
@@ -1348,9 +1466,32 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
             </button>
           );
         })}
+        {complexes.length === 0 && (
+          <div className="admin-empty-state">
+            <strong>Todavía no hay complejos</strong>
+            <p>Usá “Agregar nuevo complejo” para crear el primero.</p>
+          </div>
+        )}
       </div>
       {activeComplex && (
         <div className="admin-complex-workspace">
+          <header className="admin-workspace-header">
+            <div>
+              <span className="section-kicker">COMPLEJO SELECCIONADO</span>
+              <h2>{activeComplex.nombre}</h2>
+              <p>
+                {[activeComplex.direccion, activeComplex.ciudad, activeComplex.provincia]
+                  .filter(Boolean)
+                  .join(", ")}
+              </p>
+            </div>
+            <div className="admin-workspace-header__facts" aria-label="Resumen del complejo">
+              <span>{activeComplex.canchas.length} {activeComplex.canchas.length === 1 ? "cancha" : "canchas"}</span>
+              <span className={activeComplex.suspendido_suscripcion ? "is-suspended" : "is-active"}>
+                {activeComplex.suspendido_suscripcion ? "Suspendido" : "Activo"}
+              </span>
+            </div>
+          </header>
           {activeComplex.suspendido_suscripcion && (
             <div className="admin-suspension-notice" role="status">
               <Icon name="spark" size={18} />
@@ -1364,6 +1505,13 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
               </div>
             </div>
           )}
+          <AdminDisclosure
+            id={`complex-${activeComplex.id}-information`}
+            title="Información del complejo"
+            description="Nombre, ubicación, contacto, descripción y foto."
+            open={complexInfoOpen}
+            onToggle={() => setComplexInfoOpen((current) => !current)}
+          >
           <form
             className="admin-form admin-complex-edit"
             onSubmit={saveComplex}
@@ -1412,42 +1560,32 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
             </Button>
             <ActionFeedback message={messageArea === "complex" ? message : ""} tone={messageType} />
           </form>
+          </AdminDisclosure>
           {canManageFinances && (
+            <AdminDisclosure
+              id={`complex-${activeComplex.id}-payments`}
+              title="Cobros y Mercado Pago"
+              description="Cuenta conectada, seña y configuración de pagos."
+              open={paymentsOpen}
+              onToggle={() => setPaymentsOpen((current) => !current)}
+            >
             <MercadoPagoSettings
               key={activeComplex.id}
               complex={activeComplex}
               request={request}
               readOnly={complexReadOnly}
             />
+            </AdminDisclosure>
           )}
           <section className="admin-courts-panel">
             <div className="admin-courts-panel__heading">
-              <h3>Canchas del complejo</h3>
-              <p>Agregá una cancha o elegí una creada para editarla.</p>
-            </div>
-            <form className="admin-form admin-add-court" onSubmit={createCourt}>
               <div>
-                <h3>Agregar otra cancha</h3>
-                <p>
-                  Quedará disponible para configurar sus horarios después de
-                  crearla.
-                </p>
+                <span className="section-kicker">CANCHAS</span>
+                <h3>Canchas de {activeComplex.nombre}</h3>
+                <p>Elegí una cancha para editar todos sus datos y horarios.</p>
               </div>
-              <div className="admin-court-fields">
-                <CourtFields
-                  value={newCourt}
-                  onChange={setNewCourt}
-                  disabled={complexReadOnly}
-                  canManageFinances={canManageFinances}
-                />
-              </div>
-              <Button type="submit" disabled={complexReadOnly}>
-                Agregar cancha
-              </Button>
-              <ActionFeedback message={messageArea === "create-court" ? message : ""} tone={messageType} />
-            </form>
+            </div>
             <div className="admin-court-list-section">
-              <h3>Canchas creadas</h3>
               <div className="admin-court-list">
                 {activeComplex.canchas.map((court) => (
                   <button
@@ -1472,10 +1610,58 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
                     )}
                   </button>
                 ))}
+                {activeComplex.canchas.length === 0 && (
+                  <div className="admin-empty-state">
+                    <strong>Este complejo todavía no tiene canchas</strong>
+                    <p>Agregá la primera para configurar sus turnos.</p>
+                  </div>
+                )}
               </div>
             </div>
+            <AdminDisclosure
+              id={`complex-${activeComplex.id}-add-court`}
+              title="Agregar otra cancha"
+              description="Sumá una cancha y configurá sus horarios después."
+              open={addCourtOpen}
+              onToggle={() => setAddCourtOpen((current) => !current)}
+              className="admin-add-court-disclosure"
+            >
+              <form className="admin-form admin-add-court" onSubmit={createCourt}>
+                <div className="admin-court-fields">
+                  <CourtFields
+                    value={newCourt}
+                    onChange={setNewCourt}
+                    disabled={complexReadOnly}
+                    canManageFinances={canManageFinances}
+                  />
+                </div>
+                <Button type="submit" disabled={complexReadOnly}>
+                  Agregar cancha
+                </Button>
+                <ActionFeedback message={messageArea === "create-court" ? message : ""} tone={messageType} />
+              </form>
+            </AdminDisclosure>
             {selectedCourt && (
               <section className="admin-court-editor">
+                <header className="admin-court-editor__header">
+                  <div>
+                    <span className="section-kicker">CANCHA SELECCIONADA</span>
+                    <h3>{selectedCourt.nombre}</h3>
+                    <p>{selectedCourt.deporte} · {selectedCourt.indoor ? "Indoor" : "A cielo abierto"}</p>
+                  </div>
+                  {canManageFinances && (
+                    <span className="admin-court-editor__deposit">
+                      {selectedCourt.requiere_sena === false ? "Sin seña" : "Seña requerida"}
+                    </span>
+                  )}
+                </header>
+                <AdminDisclosure
+                  id={`court-${selectedCourt.id}-information`}
+                  title="Información de la cancha"
+                  description="Nombre, deporte, modalidad y configuración de seña."
+                  open={courtInfoOpen}
+                  onToggle={() => setCourtInfoOpen((current) => !current)}
+                >
                 <form
                   className="admin-form admin-court-edit"
                   onSubmit={saveCourt}
@@ -1517,6 +1703,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
                   </Button>
                   <ActionFeedback message={messageArea === "court" ? message : ""} tone={messageType} />
                 </form>
+                </AdminDisclosure>
                 <SlotEditor
                   key={selectedCourt.id}
                   court={selectedCourt}
