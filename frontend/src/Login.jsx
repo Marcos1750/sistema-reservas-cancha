@@ -406,7 +406,7 @@ export default function Reservas() {
     try {
       const item = await readApiResponse(await apiFetch(`/api/complejos/${summary.id}`));
       const complex = { ...mapApiComplex(item), courts: item.canchas.map((court) => mapApiCourt(court, item.reserva_sin_sena === true)) };
-      setAvailabilityNow(new Date()); setSelectedComplex(complex); setSelectedCourt(complex.courts[0] || null); setSelectedTime(''); setAvailabilityStatus('loading'); setScreen('detail'); window.scrollTo({ top: 0, behavior: 'smooth' });
+      setAvailabilityNow(new Date()); setSelectedComplex(complex); setSelectedCourt(complex.courts[0] || null); setSelectedTime(''); setAvailabilityStatus('loading'); setAvailabilityRefreshId((current) => current + 1); setScreen('detail'); window.scrollTo({ top: 0, behavior: 'smooth' });
       if (updateUrl) navigate(`/complejos/${complexSlug(complex.name)}`);
     } catch (requestError) { setError(requestError.message); }
   }, [navigate]);
@@ -416,15 +416,19 @@ export default function Reservas() {
       return;
     }
     if (!complexesLoaded || deepLinkHandled.current === slug) return;
-    deepLinkHandled.current = slug;
     const target = complexes.find((complex) => String(complex.id) === slug || complexSlug(complex.name) === complexSlug(slug));
     if (target) {
+      if (selectedComplex?.id === target.id) {
+        deepLinkHandled.current = slug;
+        return;
+      }
+      deepLinkHandled.current = slug;
       openComplex(target, { updateUrl: false });
     } else {
       setError('No encontramos ese complejo.');
     }
-  }, [slug, complexes, complexesLoaded, openComplex]);
-  const chooseCourt = (court) => { setAvailabilityNow(new Date()); setAvailabilityStatus('loading'); setSelectedCourt(court); setSelectedTime(''); };
+  }, [slug, complexes, complexesLoaded, openComplex, selectedComplex]);
+  const chooseCourt = (court) => { setAvailabilityNow(new Date()); setAvailabilityStatus('loading'); setAvailabilityRefreshId((current) => current + 1); setSelectedCourt(court); setSelectedTime(''); };
   const toggleSaved = async (id) => {
     if (!session?.user) return loginWithGoogle();
     const alreadySaved = saved.includes(id);
