@@ -384,17 +384,22 @@ export default function Reservas() {
     return () => window.clearInterval(timer);
   }, [screen, selectedCourt?.slots, selectedDate, selectedTime]);
 
+  const refreshAvailability = () => {
+    setAvailabilityStatus('loading');
+    setAvailabilityRefreshId((current) => current + 1);
+  };
   const chooseDate = (date) => {
     setAvailabilityNow(new Date());
+    if (date === selectedDate) {
+      refreshAvailability();
+      return;
+    }
     setAvailabilityStatus('loading');
     setSelectedTime('');
     setSelectedCourt((current) => current ? { ...current, slots: [], slotPrices: {} } : current);
     setSelectedDate(date);
   };
-  const retryAvailability = () => {
-    setAvailabilityStatus('loading');
-    setAvailabilityRefreshId((current) => current + 1);
-  };
+  const retryAvailability = refreshAvailability;
   const loginWithGoogle = () => authClient.signIn.social({ provider: 'google', callbackURL: window.location.href });
   const openComplex = useCallback(async (summary, { updateUrl = true } = {}) => {
     setError('');
