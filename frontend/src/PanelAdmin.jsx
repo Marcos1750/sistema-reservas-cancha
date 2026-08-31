@@ -1865,7 +1865,7 @@ function SubadminManager({ subadmins, request, reload }) {
           <p>Delegá la operación diaria sin compartir pagos, señas ni suscripción.</p>
         </div>
       </div>
-      <form className="admin-form admin-form--inline" onSubmit={invite}>
+      <form className="admin-form admin-form--inline admin-form--subadmin-invite" onSubmit={invite}>
         <Input
           type="email"
           required
@@ -1873,7 +1873,7 @@ function SubadminManager({ subadmins, request, reload }) {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
-        <Button type="submit">Agregar subadmin</Button>
+        <Button className="admin-subadmin-invite__submit" type="submit">Agregar subadmin</Button>
       </form>
       <ActionFeedback
         message={message}

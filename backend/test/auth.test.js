@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
+const { applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, delegatedReservationOwnerId, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
 
 function response() {
   return {
@@ -73,12 +73,25 @@ test('una reserva nueva exige una cancha concreta', () => {
   );
 });
 
-test('sólo el propietario reserva su propia cancha sin seña', () => {
+test('el propietario y su subadministrador activo reservan sin seña', () => {
   const courtWithDeposit = { requiere_sena: true, complejo_owner_user_id: 'owner-1' };
   assert.equal(requiresReservationPayment(courtWithDeposit, 'owner-1'), false);
+  assert.equal(requiresReservationPayment(courtWithDeposit, 'subadmin-1', 'owner-1'), false);
+  assert.equal(requiresReservationPayment(courtWithDeposit, 'subadmin-1', 'owner-2'), true);
   assert.equal(requiresReservationPayment(courtWithDeposit, 'admin-2'), true);
   assert.equal(requiresReservationPayment(courtWithDeposit, 'superadmin-1'), true);
   assert.equal(requiresReservationPayment({ ...courtWithDeposit, requiere_sena: false }, 'cliente-1'), false);
+});
+
+test('sólo la vinculación activa del subadmin habilita reservas sin seña', async () => {
+  const court = { complejo_owner_user_id: 'owner-1' };
+  const subadmin = { id: 'subadmin-1', role: 'subadmin' };
+  const activeAccess = { query: async () => ({ rowCount: 1 }) };
+  const revokedAccess = { query: async () => ({ rowCount: 0 }) };
+
+  assert.equal(await delegatedReservationOwnerId(subadmin, court, activeAccess), 'owner-1');
+  assert.equal(await delegatedReservationOwnerId(subadmin, court, revokedAccess), null);
+  assert.equal(await delegatedReservationOwnerId({ ...subadmin, role: 'admin_cancha' }, court, activeAccess), null);
 });
 
 test('un horario fijo valida la cantidad de semanas', () => {

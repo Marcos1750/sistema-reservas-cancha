@@ -813,6 +813,24 @@ body { min-width: 0; overflow-x: clip; }
   accent-color: var(--lime);
 }
 
+/* El alta de equipo prioriza el correo y mantiene la acción compacta en escritorio. */
+@media (min-width: 781px) {
+  .admin-form--subadmin-invite {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    width: min(100%, 640px);
+    align-items: center;
+  }
+  .admin-form--subadmin-invite .admin-subadmin-invite__submit {
+    min-height: 42px;
+    padding-inline: 14px;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 780px) {
+  .admin-form--subadmin-invite .admin-subadmin-invite__submit { width: 100%; }
+}
+
 /* Escala de lectura: los datos de una reserva deben poder leerse sin ampliar el navegador. */
 .public-layout .section-kicker,
 .public-layout .detail-eyebrow { font-size: 11px; letter-spacing: .12em; }

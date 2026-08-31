@@ -229,8 +229,22 @@ function hasCheckoutUrl(value) {
   }
 }
 
-function requiresReservationPayment(court, userId) {
-  return court.requiere_sena !== false && court.complejo_owner_user_id !== userId;
+function requiresReservationPayment(court, userId, delegatedOwnerUserId = null) {
+  return court.requiere_sena !== false
+    && court.complejo_owner_user_id !== userId
+    && court.complejo_owner_user_id !== delegatedOwnerUserId;
+}
+
+async function delegatedReservationOwnerId(user, court, client = pool) {
+  if (user.role !== 'subadmin' || court.complejo_owner_user_id === user.id) return null;
+  const access = await client.query(
+    `SELECT 1
+       FROM accesos_subadmin
+      WHERE user_id=$1 AND owner_user_id=$2
+      LIMIT 1`,
+    [user.id, court.complejo_owner_user_id],
+  );
+  return access.rowCount ? court.complejo_owner_user_id : null;
 }
 
 function managedOwnerId(req) {
@@ -1106,7 +1120,10 @@ app.get('/api/complejos/:id', async (req, res, next) => {
       [req.params.id],
     );
     const { owner_user_id: ownerUserId, ...publicComplex } = complex;
-    res.json({ ...publicComplex, reserva_sin_sena: currentUser?.id === ownerUserId, canchas: rows });
+    const delegatedOwnerUserId = currentUser
+      ? await delegatedReservationOwnerId(currentUser, { complejo_owner_user_id: ownerUserId })
+      : null;
+    res.json({ ...publicComplex, reserva_sin_sena: currentUser?.id === ownerUserId || delegatedOwnerUserId === ownerUserId, canchas: rows });
   } catch (error) {
     next(error);
   }
@@ -1228,7 +1245,7 @@ app.get('/api/bloqueos', async (_req, res, next) => {
   }
 });
 
-app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'superadmin']), async (req, res, next) => {
+app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'subadmin', 'superadmin']), async (req, res, next) => {
   const reservation = validateReservation(req.body || {});
   if (reservation.error) return res.status(400).json(reservation);
   const client = await pool.connect();
@@ -1247,7 +1264,8 @@ app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'superadmin'])
       return res.status(404).json({ error: 'La cancha ya no está disponible' });
     }
     await expirePendingReservations(client);
-    const requiresPayment = requiresReservationPayment(court, req.user.id);
+    const delegatedOwnerUserId = await delegatedReservationOwnerId(req.user, court, client);
+    const requiresPayment = requiresReservationPayment(court, req.user.id, delegatedOwnerUserId);
     let accessToken = null;
     if (requiresPayment) {
       if (!court.mp_access_token) throw paymentSetupError('Este complejo no tiene Mercado Pago conectado. No se creó la reserva.');
@@ -2284,4 +2302,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };
+export { app, applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, delegatedReservationOwnerId, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };
