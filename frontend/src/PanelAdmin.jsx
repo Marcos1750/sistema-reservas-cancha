@@ -1141,6 +1141,14 @@ function MercadoPagoSettings({ complex, request, readOnly = false }) {
   );
 }
 
+function supportsNativeMobileSharing() {
+  return (
+    typeof navigator !== "undefined" &&
+    typeof navigator.share === "function" &&
+    /Android|iPhone|iPod/i.test(navigator.userAgent)
+  );
+}
+
 function ComplexesManager({ complexes, reload, request, adminAccess }) {
   const confirm = useConfirm();
   const alert = useAlert();
@@ -1162,6 +1170,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const [addCourtOpen, setAddCourtOpen] = useState(false);
   const [courtInfoOpen, setCourtInfoOpen] = useState(false);
+  const [shareStatus, setShareStatus] = useState("");
   const selectComplex = (complex) => {
     setSelectedComplex(complex);
     setSelectedCourt(null);
@@ -1179,6 +1188,7 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
     setPaymentsOpen(false);
     setAddCourtOpen(false);
     setCourtInfoOpen(false);
+    setShareStatus("");
   };
   const selectCourt = (court) => {
     setSelectedCourt(court);
@@ -1202,10 +1212,51 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
     complexes.some((complex) => complex.suspendido_suscripcion);
   const complexReadOnly =
     !isSuperadmin && Boolean(activeComplex?.suspendido_suscripcion);
+  const canSharePublicLink = Boolean(
+    activeComplex && !activeComplex.suspendido_suscripcion && activeComplex.activo !== false,
+  );
+  const usesNativeShare = supportsNativeMobileSharing();
   const show = (text, type = "success", area = "create") => {
     setMessageType(type);
     setMessageArea(area);
     setMessage(text);
+  };
+  const shareComplex = async () => {
+    if (!activeComplex) return;
+    const publicOrigin = window.location.hostname === "newmatch.vercel.app"
+      ? "https://newmatch.com.ar"
+      : window.location.origin;
+    const url = new URL(`/complejos/${encodeURIComponent(activeComplex.id)}`, publicOrigin).toString();
+    const text = `Reservá tu turno en ${activeComplex.nombre}`;
+    if (supportsNativeMobileSharing()) {
+      try {
+        await navigator.share({ title: activeComplex.nombre, text, url });
+        setShareStatus("Enlace compartido");
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const helper = document.createElement("textarea");
+        helper.value = url;
+        helper.setAttribute("readonly", "");
+        helper.style.position = "fixed";
+        helper.style.opacity = "0";
+        document.body.appendChild(helper);
+        helper.select();
+        const copied = document.execCommand("copy");
+        helper.remove();
+        if (!copied) throw new Error("clipboard_unavailable");
+      }
+      setShareStatus("Enlace copiado");
+    } catch {
+      setShareStatus("No pudimos copiar el enlace");
+    }
   };
   const courtPayload = (court) => {
     if (canManageFinances) return court;
@@ -1485,10 +1536,32 @@ function ComplexesManager({ complexes, reload, request, adminAccess }) {
                   .join(", ")}
               </p>
             </div>
-            <div className="admin-workspace-header__facts" aria-label="Resumen del complejo">
-              <span>{activeComplex.canchas.length} {activeComplex.canchas.length === 1 ? "cancha" : "canchas"}</span>
-              <span className={activeComplex.suspendido_suscripcion ? "is-suspended" : "is-active"}>
-                {activeComplex.suspendido_suscripcion ? "Suspendido" : "Activo"}
+            <div className="admin-workspace-header__actions">
+              <div className="admin-workspace-header__facts" aria-label="Resumen del complejo">
+                <span>{activeComplex.canchas.length} {activeComplex.canchas.length === 1 ? "cancha" : "canchas"}</span>
+                <span className={activeComplex.suspendido_suscripcion ? "is-suspended" : "is-active"}>
+                  {activeComplex.suspendido_suscripcion ? "Suspendido" : "Activo"}
+                </span>
+              </div>
+              <Button
+                className="admin-complex-share"
+                variant="secondary"
+                type="button"
+                onClick={shareComplex}
+                disabled={!canSharePublicLink}
+                title={
+                  !canSharePublicLink
+                    ? "Publicá el complejo para poder compartirlo."
+                    : usesNativeShare
+                      ? "Enviar el enlace público del complejo"
+                      : "Copiar el enlace público del complejo"
+                }
+              >
+                <Icon name="share" size={16} />
+                {shareStatus || "Compartir enlace"}
+              </Button>
+              <span className="sr-only" role="status" aria-live="polite">
+                {shareStatus}
               </span>
             </div>
           </header>

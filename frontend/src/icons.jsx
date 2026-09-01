@@ -18,6 +18,7 @@ export function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
     filter: <><path d="M4 6h16M7 12h10M10 18h4" /></>,
     check: <path d="m5 12 4.5 4.5L19 7" />,
     logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9" /></>,
+    share: <><circle cx="18" cy="5" r="2.4" /><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="19" r="2.4" /><path d="m8.1 10.8 7.8-4.5M8.1 13.2l7.8 4.5" /></>,
     menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     pitch: <><rect x="4" y="4" width="16" height="16" rx="1" /><path d="M12 4v16M4 12h16M7 8h3v8H7M17 8h-3v8h3" /></>,
