@@ -378,7 +378,25 @@ async function migrate(client = pool) {
       FROM pagos_reserva p
      WHERE p.estado = 'aprobado'
        AND (p.reserva_id = r.id OR (p.recurrencia_id IS NOT NULL AND p.recurrencia_id = r.recurrencia_id))
-       AND r.estado IN ('pendiente_pago', 'expirada');
+       AND r.estado = 'pendiente_pago';
+    UPDATE pagos_reserva p
+       SET estado = 'pendiente',
+           updated_at = NOW()
+      FROM reservas r
+     WHERE p.estado IN ('rechazado', 'cancelado')
+       AND p.expira_at > NOW()
+       AND r.estado = 'expirada'
+       AND r.cancel_reason = 'Seña rechazada o cancelada'
+       AND (p.reserva_id = r.id OR (p.recurrencia_id IS NOT NULL AND p.recurrencia_id = r.recurrencia_id));
+    UPDATE reservas r
+       SET estado = 'pendiente_pago',
+           cancel_reason = NULL
+      FROM pagos_reserva p
+     WHERE p.estado = 'pendiente'
+       AND p.expira_at > NOW()
+       AND r.estado = 'expirada'
+       AND r.cancel_reason = 'Seña rechazada o cancelada'
+       AND (p.reserva_id = r.id OR (p.recurrencia_id IS NOT NULL AND p.recurrencia_id = r.recurrencia_id));
     ALTER TABLE bloqueos ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE CASCADE;
     ALTER TABLE bloqueos DROP CONSTRAINT IF EXISTS bloqueos_fecha_key;
 

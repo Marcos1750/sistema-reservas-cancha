@@ -168,13 +168,55 @@ test('confirma la reserva al acreditar un pago y repara una acreditación repeti
 
   assert.equal(await applyProviderPayment(localPayment, providerPayment, database), 'aprobado');
   assert.ok(calls.some(({ sql, params }) => sql.includes('UPDATE pagos_reserva') && params[0] === 'aprobado'));
-  assert.ok(calls.some(({ sql, params }) => sql.includes("WHERE id=$1 AND estado IN ('pendiente_pago', 'expirada')") && params[0] === 9));
+  assert.ok(calls.some(({ sql, params }) => sql.includes("WHERE id=$1 AND estado='pendiente_pago'") && params[0] === 9));
 
   calls.length = 0;
   pendingPayment.estado = 'aprobado';
   assert.equal(await applyProviderPayment(localPayment, providerPayment, database), 'aprobado');
   assert.equal(calls.some(({ sql }) => sql.includes('UPDATE pagos_reserva')), false);
-  assert.ok(calls.some(({ sql, params }) => sql.includes("WHERE id=$1 AND estado IN ('pendiente_pago', 'expirada')") && params[0] === 9));
+  assert.ok(calls.some(({ sql, params }) => sql.includes("WHERE id=$1 AND estado='pendiente_pago'") && params[0] === 9));
+});
+
+test('un rechazo no vence la retención y un reintento aprobado confirma el turno', async () => {
+  const calls = [];
+  const pendingPayment = { id: 45, estado: 'pendiente', reserva_id: 10, recurrencia_id: null };
+  const client = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT * FROM pagos_reserva')) return { rows: [pendingPayment] };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  const database = { connect: async () => client };
+  const localPayment = { ...pendingPayment, monto_ars: 3000 };
+
+  assert.equal(await applyProviderPayment(localPayment, { id: 'mp-rejected', external_reference: '45', transaction_amount: 3000, status: 'rejected' }, database), 'pendiente');
+  assert.ok(calls.some(({ sql, params }) => sql.includes('UPDATE pagos_reserva') && params[0] === 'pendiente' && params[1] === 'mp-rejected'));
+  assert.equal(calls.some(({ sql }) => sql.includes("UPDATE reservas SET estado='expirada'")), false);
+
+  calls.length = 0;
+  assert.equal(await applyProviderPayment(localPayment, { id: 'mp-approved', external_reference: '45', transaction_amount: 3000, status: 'approved' }, database), 'aprobado');
+  assert.ok(calls.some(({ sql, params }) => sql.includes('UPDATE pagos_reserva') && params[0] === 'aprobado' && params[1] === 'mp-approved'));
+  assert.ok(calls.some(({ sql }) => sql.includes("UPDATE reservas SET estado='confirmada'")));
+});
+
+test('un webhook tardío no reactiva una seña que ya venció', async () => {
+  const calls = [];
+  const expiredPayment = { id: 46, estado: 'expirado', reserva_id: 11, recurrencia_id: null };
+  const client = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('SELECT * FROM pagos_reserva')) return { rows: [expiredPayment] };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  };
+  const localPayment = { ...expiredPayment, monto_ars: 3000 };
+
+  assert.equal(await applyProviderPayment(localPayment, { id: 'mp-late', external_reference: '46', transaction_amount: 3000, status: 'approved' }, { connect: async () => client }), 'expirado');
+  assert.ok(calls.some(({ sql, params }) => sql.includes('payload_mp') && params[0] === 'mp-late'));
+  assert.equal(calls.some(({ sql }) => sql.includes("UPDATE reservas SET estado='confirmada'")), false);
 });
 
 test('el cliente puede cancelar hasta dos horas antes del turno', () => {

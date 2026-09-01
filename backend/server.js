@@ -349,6 +349,9 @@ async function findSlotPrice(canchaId, fecha, hora, client = pool) {
 }
 
 async function expirePendingReservations(client = pool) {
+  await client.query(
+    "UPDATE pagos_reserva SET estado = 'expirado', updated_at = NOW() WHERE estado = 'pendiente' AND expira_at <= NOW()",
+  );
   await client.query("UPDATE reservas SET estado = 'expirada', cancel_reason = 'Seña no acreditada a tiempo' WHERE estado = 'pendiente_pago' AND expira_pago_at <= NOW()");
 }
 
@@ -365,12 +368,12 @@ async function sellerAccessToken(complex, client = pool) {
 async function synchronizeReservationsForPayment(client, payment) {
   if (payment.recurrencia_id) {
     await client.query(
-      "UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE recurrencia_id=$1 AND estado IN ('pendiente_pago', 'expirada')",
+      "UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE recurrencia_id=$1 AND estado='pendiente_pago'",
       [payment.recurrencia_id],
     );
   } else {
     await client.query(
-      "UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE id=$1 AND estado IN ('pendiente_pago', 'expirada')",
+      "UPDATE reservas SET estado='confirmada', expira_pago_at=NULL, cancel_reason=NULL WHERE id=$1 AND estado='pendiente_pago'",
       [payment.reserva_id],
     );
   }
@@ -383,23 +386,41 @@ async function synchronizeApprovedReservations() {
        FROM pagos_reserva p
       WHERE p.estado='aprobado'
         AND (p.reserva_id=r.id OR (p.recurrencia_id IS NOT NULL AND p.recurrencia_id=r.recurrencia_id))
-        AND r.estado IN ('pendiente_pago', 'expirada')`,
+        AND r.estado='pendiente_pago'`,
   );
+}
+
+async function lockReservationsForPayment(client, payment) {
+  if (payment.recurrencia_id) {
+    await client.query('SELECT id FROM reservas WHERE recurrencia_id=$1 FOR UPDATE', [payment.recurrencia_id]);
+  } else {
+    await client.query('SELECT id FROM reservas WHERE id=$1 FOR UPDATE', [payment.reserva_id]);
+  }
 }
 
 async function applyProviderPayment(localPayment, providerPayment, database = pool) {
   if (String(providerPayment.external_reference) !== String(localPayment.id) || Number(providerPayment.transaction_amount) !== Number(localPayment.monto_ars)) {
     throw new Error('El pago no coincide con la reserva');
   }
-  const statusMap = { approved: 'aprobado', rejected: 'rechazado', cancelled: 'cancelado' };
-  const nextStatus = statusMap[providerPayment.status] || 'pendiente';
+  const nextStatus = providerPayment.status === 'approved' ? 'aprobado' : 'pendiente';
   const client = await database.connect();
   try {
     await client.query('BEGIN');
+    // Las cancelaciones toman primero la reserva y luego el pago. Conservamos
+    // el mismo orden para que un webhook y una cancelación no se bloqueen entre sí.
+    await lockReservationsForPayment(client, localPayment);
     const locked = await client.query('SELECT * FROM pagos_reserva WHERE id=$1 FOR UPDATE', [localPayment.id]);
     const current = locked.rows[0];
     if (!current || current.estado !== 'pendiente') {
       if (current?.estado === 'aprobado') await synchronizeReservationsForPayment(client, current);
+      if (current && ['cancelado', 'expirado'].includes(current.estado) && providerPayment.status === 'approved') {
+        await client.query(
+          `UPDATE pagos_reserva
+              SET pago_mp_id=COALESCE(pago_mp_id, $1), payload_mp=$2::jsonb, consultado_mp_at=NOW(), updated_at=NOW()
+            WHERE id=$3`,
+          [String(providerPayment.id), JSON.stringify(providerPayment), current.id],
+        );
+      }
       await client.query('COMMIT');
       return current?.estado || null;
     }
@@ -411,12 +432,6 @@ async function applyProviderPayment(localPayment, providerPayment, database = po
     );
     if (nextStatus === 'aprobado') {
       await synchronizeReservationsForPayment(client, current);
-    } else if (nextStatus === 'rechazado' || nextStatus === 'cancelado') {
-      if (current.recurrencia_id) {
-        await client.query("UPDATE reservas SET estado='expirada', cancel_reason='Seña rechazada o cancelada' WHERE recurrencia_id=$1 AND estado='pendiente_pago'", [current.recurrencia_id]);
-      } else {
-        await client.query("UPDATE reservas SET estado='expirada', cancel_reason='Seña rechazada o cancelada' WHERE id=$1 AND estado='pendiente_pago'", [current.reserva_id]);
-      }
     }
     await client.query('COMMIT');
     return nextStatus;
@@ -451,7 +466,7 @@ async function reconcilePendingPayments(limit = 50, options = {}) {
        FROM pagos_reserva p
        JOIN reservas r ON r.id = p.reserva_id
        JOIN complejos co ON co.id = p.complejo_id
-      WHERE p.estado='pendiente' AND r.estado IN ('pendiente_pago', 'expirada')
+      WHERE p.estado='pendiente' AND r.estado='pendiente_pago'
       ORDER BY p.updated_at ASC
       LIMIT $1`,
     [limit],
@@ -1270,7 +1285,9 @@ app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'subadmin', 's
     if (requiresPayment) {
       if (!court.mp_access_token) throw paymentSetupError('Este complejo no tiene Mercado Pago conectado. No se creó la reserva.');
       try {
-        accessToken = await sellerAccessToken(court, client);
+        // La renovación de OAuth es un efecto externo: debe persistir aunque
+        // luego falle el checkout o la transacción de la reserva se revierta.
+        accessToken = await sellerAccessToken(court);
       } catch (error) {
         throw paymentSetupError(`No pudimos conectar con Mercado Pago: ${error.message}`);
       }
@@ -1349,9 +1366,9 @@ app.post('/api/reservas', requireAuth(['cliente', 'admin_cancha', 'subadmin', 's
 
 app.get('/api/mis-reservas', requireAuth(), async (req, res, next) => {
   try {
+    await expirePendingReservations();
     await synchronizeApprovedReservations();
     await reconcilePendingPayments(50, { force: true });
-    await expirePendingReservations();
     const { rows } = await pool.query(
       `SELECT r.id, r.nombre, r.telefono, r.fecha::text, r.hora, r.precio_ars, r.recurrencia_id,
               r.estado, r.created_at, c.id AS cancha_id, COALESCE(c.nombre, r.cancha_nombre, 'Cancha eliminada') AS cancha,
@@ -1449,8 +1466,8 @@ app.get('/api/pagos/:id', requireAuth(), async (req, res, next) => {
     );
     let payment = rows[0];
     if (!payment) return res.status(404).json({ error: 'Pago no encontrado' });
-    await reconcilePendingPayment(payment);
     await expirePendingReservations();
+    await reconcilePendingPayment(payment);
     const refreshed = await pool.query(
       `SELECT p.id, p.monto_ars, p.porcentaje_sena, p.estado, p.checkout_url, p.expira_at,
               r.id AS reserva_id, r.estado AS reserva_estado
@@ -2014,9 +2031,9 @@ app.delete('/api/admin/canchas/:id/excepciones/:exceptionId', requireAnyAdmin, r
 
 app.get('/api/admin/reservas', requireAnyAdmin, async (req, res, next) => {
   try {
+    await expirePendingReservations();
     await synchronizeApprovedReservations();
     await reconcilePendingPayments(50, { force: true });
-    await expirePendingReservations();
     const params = [];
     let filter = '';
     if (req.user.role !== 'superadmin') {
