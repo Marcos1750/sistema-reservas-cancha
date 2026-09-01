@@ -1,7 +1,9 @@
+export const DEFAULT_TRIAL_DAYS = 30;
+
 export const SUBSCRIPTION_PLANS = {
-  fundador: { code: 'fundador', name: 'Fundador', price: 19900, maxComplexes: 1, maxCourts: 6, trialDays: 14, founder: true },
-  estandar: { code: 'estandar', name: 'Estándar', price: 24900, maxComplexes: 1, maxCourts: 6, trialDays: 14 },
-  pro: { code: 'pro', name: 'Pro', price: 39900, maxComplexes: 3, maxCourts: 20, trialDays: 14 },
+  fundador: { code: 'fundador', name: 'Fundador', price: 19900, maxComplexes: 1, maxCourts: 6, trialDays: DEFAULT_TRIAL_DAYS, founder: true },
+  estandar: { code: 'estandar', name: 'Estándar', price: 24900, maxComplexes: 1, maxCourts: 6, trialDays: DEFAULT_TRIAL_DAYS },
+  pro: { code: 'pro', name: 'Pro', price: 39900, maxComplexes: 3, maxCourts: 20, trialDays: DEFAULT_TRIAL_DAYS },
 };
 
 export const ACTIVE_SUBSCRIPTION_STATES = new Set(['prueba', 'activa', 'en_gracia']);
@@ -72,7 +74,9 @@ export function providerNextPaymentDate(provider) {
   return provider?.next_payment_date || provider?.auto_recurring?.next_payment_date || null;
 }
 
-export function providerTrialWindow(provider, trialDays = 14, now = new Date()) {
+export function providerTrialWindow(provider, fallbackTrialDays = DEFAULT_TRIAL_DAYS, now = new Date()) {
+  const providerTrialDays = Number(provider?.auto_recurring?.free_trial?.frequency);
+  const trialDays = providerTrialDays > 0 ? providerTrialDays : fallbackTrialDays;
   const nextPayment = providerNextPaymentDate(provider);
   const endsAt = nextPayment ? new Date(nextPayment) : null;
   if (endsAt && !Number.isNaN(endsAt.getTime())) {

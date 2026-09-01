@@ -129,7 +129,7 @@ function subscriptionAccessToken() {
   return token;
 }
 
-export async function createSubscriptionCheckout(subscription, plan, { trialDays = 14 } = {}) {
+export async function createSubscriptionCheckout(subscription, plan, { trialDays = 30 } = {}) {
   const baseUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL;
   if (!baseUrl) throw new Error('APP_URL es obligatorio para crear una suscripción');
   const body = {

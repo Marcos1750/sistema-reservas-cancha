@@ -194,7 +194,7 @@ async function migrate(client = pool) {
       precio_ars INTEGER NOT NULL CHECK (precio_ars >= 0),
       max_complejos SMALLINT NOT NULL CHECK (max_complejos > 0),
       max_canchas SMALLINT NOT NULL CHECK (max_canchas > 0),
-      prueba_dias SMALLINT NOT NULL DEFAULT 14 CHECK (prueba_dias >= 0),
+      prueba_dias SMALLINT NOT NULL DEFAULT 30 CHECK (prueba_dias >= 0),
       activo BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -446,10 +446,13 @@ async function migrate(client = pool) {
 
     INSERT INTO planes_suscripcion (codigo, nombre, precio_ars, max_complejos, max_canchas, prueba_dias)
     VALUES
-      ('fundador', 'Fundador', 19900, 1, 6, 14),
-      ('estandar', 'Estándar', 24900, 1, 6, 14),
-      ('pro', 'Pro', 39900, 3, 20, 14)
+      ('fundador', 'Fundador', 19900, 1, 6, 30),
+      ('estandar', 'Estándar', 24900, 1, 6, 30),
+      ('pro', 'Pro', 39900, 3, 20, 30)
     ON CONFLICT (codigo) DO NOTHING;
+    UPDATE planes_suscripcion
+       SET prueba_dias=30, updated_at=NOW()
+     WHERE prueba_dias=14;
     INSERT INTO precios_plan_suscripcion (plan_codigo, precio_ars)
     SELECT codigo, precio_ars FROM planes_suscripcion
     ON CONFLICT DO NOTHING;

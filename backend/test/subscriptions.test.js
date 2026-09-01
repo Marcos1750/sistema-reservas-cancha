@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from '../subscriptions.js';
 
 test('los planes comerciales tienen los límites acordados', () => {
-  assert.deepEqual(planFor('fundador'), { code: 'fundador', name: 'Fundador', price: 19900, maxComplexes: 1, maxCourts: 6, trialDays: 14, founder: true });
+  assert.deepEqual(planFor('fundador'), { code: 'fundador', name: 'Fundador', price: 19900, maxComplexes: 1, maxCourts: 6, trialDays: 30, founder: true });
   assert.deepEqual(planFor('estandar').maxComplexes, 1);
   assert.deepEqual(planFor('estandar').maxCourts, 6);
   assert.deepEqual(planFor('pro').maxComplexes, 3);
@@ -65,7 +65,7 @@ test('interpreta las cuotas autorizadas y conserva la más reciente', () => {
 
 test('los eventos de Mercado Pago llevan la suscripción por prueba, gracia, recuperación y anulación', () => {
   const now = new Date('2026-08-26T12:00:00Z');
-  assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente' }, { status: 'authorized', auto_recurring: { free_trial: { frequency: 14 } } }, {}, now), 'prueba');
+  assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente' }, { status: 'authorized', auto_recurring: { free_trial: { frequency: 30 } } }, {}, now), 'prueba');
   assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente', prueba_reservada_at: now }, { status: 'authorized', auto_recurring: {} }, {}, now), 'activa');
   assert.equal(deriveProviderSubscriptionState({ estado: 'pendiente' }, { status: 'authorized', auto_recurring: {} }, {}, now), 'activa');
   assert.equal(deriveProviderSubscriptionState({ estado: 'activa', prueba_iniciada_at: now, prueba_finaliza_at: '2026-08-20T12:00:00Z' }, { status: 'authorized' }, { latestOutcome: 'rejected' }, now), 'en_gracia');
@@ -79,6 +79,15 @@ test('lee la próxima renovación desde el campo real de preapproval', () => {
 
 test('alinea el período de prueba con el primer cobro programado por Mercado Pago', () => {
   const window = providerTrialWindow({ next_payment_date: '2026-09-11T07:31:29.000Z' });
+  assert.equal(window.startsAt.toISOString(), '2026-08-12T07:31:29.000Z');
+  assert.equal(window.endsAt.toISOString(), '2026-09-11T07:31:29.000Z');
+});
+
+test('conserva la duración informada por Mercado Pago para pruebas existentes', () => {
+  const window = providerTrialWindow({
+    next_payment_date: '2026-09-11T07:31:29.000Z',
+    auto_recurring: { free_trial: { frequency: 14 } },
+  });
   assert.equal(window.startsAt.toISOString(), '2026-08-28T07:31:29.000Z');
   assert.equal(window.endsAt.toISOString(), '2026-09-11T07:31:29.000Z');
 });

@@ -7,7 +7,7 @@ import { del } from '@vercel/blob';
 import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getAuthorizedPayment, getPayment, getSubscription, getSubscriptionPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchAuthorizedPayments, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
-import { canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
+import { DEFAULT_TRIAL_DAYS, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
 import {
   auth,
   migrateAuth,
@@ -567,7 +567,7 @@ async function recordSubscriptionEvent(subscriptionId, type, payload = {}, provi
 }
 
 const EMAIL_COPY = {
-  prueba_iniciada: ['Tu prueba de NEW MATCH empezó', 'Tenés 14 días para organizar tu complejo.'],
+  prueba_iniciada: ['Tu prueba de NEW MATCH empezó', `Tenés ${DEFAULT_TRIAL_DAYS} días para organizar tu complejo.`],
   prueba_7: ['Tu prueba termina en 7 días', 'Revisá tu suscripción para asegurar la continuidad del servicio.'],
   prueba_3: ['Tu prueba termina en 3 días', 'Mercado Pago realizará el primer cobro al finalizar la prueba.'],
   primer_pago: ['Tu suscripción está activa', 'Recibimos tu primer pago y NEW MATCH ya está activo.'],
