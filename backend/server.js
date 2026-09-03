@@ -8,6 +8,7 @@ import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getAuthorizedPayment, getPayment, getSubscription, getSubscriptionPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchAuthorizedPayments, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
 import { DEFAULT_TRIAL_DAYS, GRACE_PERIOD_DAYS, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
+import { CANTINA_PERMISSIONS, cleanCantinaText, validateOperation, validateProduct, validateStockAdjustment } from './cantina.js';
 import {
   auth,
   migrateAuth,
@@ -1481,6 +1482,399 @@ app.get('/api/pagos/:id', requireAuth(), async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+const CANTINA_PERMISSION_COLUMNS = {
+  vender: 'puede_vender',
+  comprar: 'puede_comprar',
+  stock: 'puede_stock',
+  resultados: 'puede_resultados',
+};
+
+function buenosAiresToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+}
+
+function cantinaAccess(req, res, next) {
+  if (req.user.role === 'superadmin' || req.adminAccess?.type === 'owner') {
+    req.cantinaPermissions = new Set(CANTINA_PERMISSIONS);
+    return next();
+  }
+  return pool.query(
+    `SELECT p.puede_vender, p.puede_comprar, p.puede_stock, p.puede_resultados
+       FROM cantina_permisos_subadmin p
+       JOIN accesos_subadmin a ON a.id=p.acceso_subadmin_id
+      WHERE a.user_id=$1 AND a.owner_user_id=$2 AND p.complejo_id=$3`,
+    [req.user.id, req.complex.owner_user_id, req.complex.id],
+  ).then(({ rows }) => {
+    const row = rows[0];
+    req.cantinaPermissions = new Set(CANTINA_PERMISSIONS.filter((permission) => row?.[CANTINA_PERMISSION_COLUMNS[permission]]));
+    if (!req.cantinaPermissions.size) return res.status(403).json({ error: 'No tenés acceso a la cantina de este complejo.' });
+    return next();
+  }).catch(next);
+}
+
+function requireCantinaPermission(permission) {
+  return (req, res, next) => {
+    if (!req.cantinaPermissions?.has(permission)) return res.status(403).json({ error: 'No tenés permiso para realizar esta acción en la cantina.' });
+    return next();
+  };
+}
+
+async function cantinaOperationResponse(operationId, client = pool) {
+  const operation = await client.query(
+    `SELECT o.*, COALESCE(u.name, 'Usuario eliminado') AS creado_por_nombre,
+            COALESCE(r.nombre, '') AS reserva_nombre, COALESCE(r.fecha::text, '') AS reserva_fecha, COALESCE(r.hora, '') AS reserva_hora
+       FROM cantina_operaciones o
+       LEFT JOIN "user" u ON u.id=o.created_by
+       LEFT JOIN reservas r ON r.id=o.reserva_id
+      WHERE o.id=$1`, [operationId],
+  );
+  if (!operation.rows[0]) return null;
+  const items = await client.query(
+    `SELECT i.id, i.producto_id, i.producto_nombre, i.cantidad, i.precio_unitario_ars, i.total_ars
+       FROM cantina_operacion_items i WHERE i.operacion_id=$1 ORDER BY i.id`, [operationId],
+  );
+  return { ...operation.rows[0], items: items.rows };
+}
+
+app.get('/api/admin/cantina/complejos', requireAnyAdmin, async (req, res, next) => {
+  try {
+    const params = [];
+    let where = '';
+    if (req.user.role === 'superadmin' || req.adminAccess?.type === 'owner') {
+      if (req.user.role !== 'superadmin') { params.push(managedOwnerId(req)); where = 'WHERE co.owner_user_id=$1'; }
+    } else {
+      params.push(req.user.id, managedOwnerId(req));
+      where = `WHERE co.owner_user_id=$2 AND EXISTS (
+        SELECT 1 FROM cantina_permisos_subadmin p
+        JOIN accesos_subadmin a ON a.id=p.acceso_subadmin_id
+        WHERE a.user_id=$1 AND p.complejo_id=co.id
+          AND (p.puede_vender OR p.puede_comprar OR p.puede_stock OR p.puede_resultados)
+      )`;
+    }
+    const { rows } = await pool.query(
+      `SELECT co.id, co.nombre, co.ciudad, co.provincia, co.activo, co.suspendido_suscripcion
+         FROM complejos co ${where} ORDER BY co.nombre`, params,
+    );
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/complejos/:id/cantina/resumen', requireAnyAdmin, complexAccess, cantinaAccess, requireCantinaPermission('resultados'), async (req, res, next) => {
+  const date = cleanCantinaText(req.query.fecha, 10) || buenosAiresToday();
+  try {
+    const [summary, stock, movements] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(total_ars) FILTER (WHERE tipo='venta' AND estado='activa'),0)::int AS ventas,
+                COALESCE(SUM(total_ars) FILTER (WHERE tipo='compra' AND estado='activa'),0)::int AS compras,
+                COUNT(*) FILTER (WHERE tipo='venta' AND estado='activa')::int AS cantidad_ventas
+           FROM cantina_operaciones WHERE complejo_id=$1 AND fecha=$2`, [req.complex.id, date],
+      ),
+      pool.query(
+        `SELECT COUNT(*) FILTER (WHERE stock_actual < 0)::int AS negativos,
+                COUNT(*) FILTER (WHERE stock_actual >= 0 AND stock_actual <= stock_minimo)::int AS bajos
+           FROM cantina_productos WHERE complejo_id=$1 AND activo=true`, [req.complex.id],
+      ),
+      pool.query(
+        `SELECT m.id, m.tipo, m.cantidad, m.motivo, m.created_at, p.nombre AS producto_nombre,
+                COALESCE(u.name, 'Usuario eliminado') AS usuario_nombre
+           FROM cantina_movimientos_stock m
+           JOIN cantina_productos p ON p.id=m.producto_id
+           LEFT JOIN "user" u ON u.id=m.created_by
+          WHERE m.complejo_id=$1 ORDER BY m.created_at DESC LIMIT 8`, [req.complex.id],
+      ),
+    ]);
+    res.json({ fecha: date, ...summary.rows[0], ...stock.rows[0], movimientos: movements.rows, permisos: [...req.cantinaPermissions] });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/complejos/:id/cantina/productos', requireAnyAdmin, complexAccess, cantinaAccess, async (req, res, next) => {
+  if (![...req.cantinaPermissions].some((permission) => ['vender', 'comprar', 'stock', 'resultados'].includes(permission))) return res.status(403).json({ error: 'No tenés acceso a los productos de esta cantina.' });
+  try {
+    const includeArchived = req.query.archivados === 'true';
+    const { rows } = await pool.query(
+      `SELECT * FROM cantina_productos WHERE complejo_id=$1 ${includeArchived ? '' : 'AND activo=true'} ORDER BY activo DESC, categoria, nombre`, [req.complex.id],
+    );
+    res.json({ productos: rows, permisos: [...req.cantinaPermissions] });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/complejos/:id/cantina/productos', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, cantinaAccess, requireCantinaPermission('stock'), async (req, res, next) => {
+  const product = validateProduct(req.body);
+  if (product.error) return res.status(400).json(product);
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO cantina_productos (complejo_id,nombre,categoria,sku,precio_venta_ars,stock_minimo,activo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [req.complex.id, product.nombre, product.categoria, product.sku, product.precioVenta, product.stockMinimo, product.activo],
+    );
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'Ya existe un producto con ese nombre o SKU en este complejo.' });
+    next(error);
+  }
+});
+
+app.patch('/api/admin/complejos/:id/cantina/productos/:productId', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, cantinaAccess, requireCantinaPermission('stock'), async (req, res, next) => {
+  const productId = Number(req.params.productId);
+  const product = validateProduct(req.body);
+  if (!Number.isSafeInteger(productId) || productId < 1) return res.status(400).json({ error: 'Producto inválido.' });
+  if (product.error) return res.status(400).json(product);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE cantina_productos SET nombre=$1,categoria=$2,sku=$3,precio_venta_ars=$4,stock_minimo=$5,activo=$6,updated_at=NOW()
+        WHERE id=$7 AND complejo_id=$8 RETURNING *`,
+      [product.nombre, product.categoria, product.sku, product.precioVenta, product.stockMinimo, product.activo, productId, req.complex.id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Producto no encontrado.' });
+    res.json(rows[0]);
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'Ya existe un producto con ese nombre o SKU en este complejo.' });
+    next(error);
+  }
+});
+
+app.post('/api/admin/complejos/:id/cantina/ajustes', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, cantinaAccess, requireCantinaPermission('stock'), async (req, res, next) => {
+  const adjustment = validateStockAdjustment(req.body);
+  if (adjustment.error) return res.status(400).json(adjustment);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query('SELECT id, stock_actual FROM cantina_productos WHERE id=$1 AND complejo_id=$2 FOR UPDATE', [adjustment.productoId, req.complex.id]);
+    if (!result.rows[0]) throw Object.assign(new Error('Producto no encontrado.'), { status: 404, expose: true });
+    const updated = await client.query('UPDATE cantina_productos SET stock_actual=stock_actual+$1, updated_at=NOW() WHERE id=$2 RETURNING *', [adjustment.cantidad, adjustment.productoId]);
+    const movement = await client.query(
+      `INSERT INTO cantina_movimientos_stock (complejo_id,producto_id,tipo,cantidad,motivo,created_by)
+       VALUES ($1,$2,'ajuste',$3,$4,$5) RETURNING *`, [req.complex.id, adjustment.productoId, adjustment.cantidad, adjustment.motivo, req.user.id],
+    );
+    await client.query('COMMIT');
+    res.status(201).json({ producto: updated.rows[0], movimiento: movement.rows[0] });
+  } catch (error) { await client.query('ROLLBACK').catch(() => {}); next(error); } finally { client.release(); }
+});
+
+app.get('/api/admin/complejos/:id/cantina/proveedores', requireAnyAdmin, complexAccess, cantinaAccess, requireCantinaPermission('comprar'), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM cantina_proveedores WHERE complejo_id=$1 AND activo=true ORDER BY nombre', [req.complex.id]);
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/complejos/:id/cantina/proveedores', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, cantinaAccess, requireCantinaPermission('comprar'), async (req, res, next) => {
+  const nombre = cleanCantinaText(req.body?.nombre, 120);
+  const telefono = cleanCantinaText(req.body?.telefono, 40);
+  const nota = cleanCantinaText(req.body?.nota, 500);
+  if (nombre.length < 2) return res.status(400).json({ error: 'Ingresá un nombre de proveedor válido.' });
+  try {
+    const { rows } = await pool.query('INSERT INTO cantina_proveedores (complejo_id,nombre,telefono,nota) VALUES ($1,$2,$3,$4) RETURNING *', [req.complex.id, nombre, telefono, nota]);
+    res.status(201).json(rows[0]);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/complejos/:id/cantina/:tipo', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, cantinaAccess, async (req, res, next) => {
+  if (!['ventas', 'compras'].includes(req.params.tipo)) return res.status(404).json({ error: 'Operación de cantina no encontrada.' });
+  const type = req.params.tipo === 'ventas' ? 'venta' : 'compra';
+  const requiredPermission = type === 'venta' ? 'vender' : 'comprar';
+  if (!req.cantinaPermissions?.has(requiredPermission)) return res.status(403).json({ error: 'No tenés permiso para registrar esta operación.' });
+  const operation = validateOperation(req.body, type);
+  if (operation.error) return res.status(400).json(operation);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query('SELECT id FROM cantina_operaciones WHERE complejo_id=$1 AND request_key=$2', [req.complex.id, operation.requestKey]);
+    if (existing.rows[0]) {
+      const repeated = await cantinaOperationResponse(existing.rows[0].id, client);
+      await client.query('COMMIT');
+      return res.json({ ...repeated, repetida: true });
+    }
+    if (operation.reservaId) {
+      const booking = await client.query(
+        `SELECT r.id FROM reservas r JOIN canchas c ON c.id=r.cancha_id
+          WHERE r.id=$1 AND c.complejo_id=$2 AND r.estado IN ('confirmada','pendiente_pago') AND r.fecha >= $3`,
+        [operation.reservaId, req.complex.id, buenosAiresToday()],
+      );
+      if (!booking.rows[0]) throw Object.assign(new Error('El turno elegido no está activo en este complejo.'), { status: 409, expose: true });
+    }
+    if (operation.proveedorId) {
+      const supplier = await client.query('SELECT id,nombre FROM cantina_proveedores WHERE id=$1 AND complejo_id=$2 AND activo=true', [operation.proveedorId, req.complex.id]);
+      if (!supplier.rows[0]) throw Object.assign(new Error('Proveedor no encontrado.'), { status: 404, expose: true });
+      operation.proveedorNombre = supplier.rows[0].nombre;
+    }
+    const productIds = operation.items.map((item) => item.productoId).sort((a, b) => a - b);
+    const products = await client.query(
+      'SELECT id,nombre,precio_venta_ars,activo FROM cantina_productos WHERE complejo_id=$1 AND id=ANY($2::bigint[]) ORDER BY id FOR UPDATE', [req.complex.id, productIds],
+    );
+    if (products.rowCount !== productIds.length || products.rows.some((product) => !product.activo)) throw Object.assign(new Error('Uno de los productos ya no está disponible.'), { status: 409, expose: true });
+    const productById = new Map(products.rows.map((product) => [Number(product.id), product]));
+    const items = operation.items.map((item) => {
+      const product = productById.get(item.productoId);
+      const unitPrice = type === 'venta' ? Number(product.precio_venta_ars) : item.precioUnitario;
+      return { ...item, product, unitPrice, total: item.cantidad * unitPrice };
+    });
+    const total = items.reduce((sum, item) => sum + item.total, 0);
+    const created = await client.query(
+      `INSERT INTO cantina_operaciones (complejo_id,tipo,fecha,total_ars,medio_pago,proveedor_id,proveedor_nombre,reserva_id,referencia,nota,request_key,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+      [req.complex.id, type, operation.fecha, total, operation.medioPago, operation.proveedorId, operation.proveedorNombre, operation.reservaId, operation.referencia, operation.nota, operation.requestKey, req.user.id],
+    );
+    for (const item of items) {
+      await client.query(
+        `INSERT INTO cantina_operacion_items (operacion_id,producto_id,producto_nombre,cantidad,precio_unitario_ars,total_ars)
+         VALUES ($1,$2,$3,$4,$5,$6)`, [created.rows[0].id, item.productoId, item.product.nombre, item.cantidad, item.unitPrice, item.total],
+      );
+      const delta = type === 'venta' ? -item.cantidad : item.cantidad;
+      await client.query('UPDATE cantina_productos SET stock_actual=stock_actual+$1,updated_at=NOW() WHERE id=$2', [delta, item.productoId]);
+      await client.query(
+        `INSERT INTO cantina_movimientos_stock (complejo_id,producto_id,operacion_id,tipo,cantidad,created_by)
+         VALUES ($1,$2,$3,$4,$5,$6)`, [req.complex.id, item.productoId, created.rows[0].id, type, delta, req.user.id],
+      );
+    }
+    const response = await cantinaOperationResponse(created.rows[0].id, client);
+    await client.query('COMMIT');
+    res.status(201).json(response);
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (error.code === '23505') {
+      const repeated = await pool.query('SELECT id FROM cantina_operaciones WHERE complejo_id=$1 AND request_key=$2', [req.complex.id, operation.requestKey]);
+      if (repeated.rows[0]) return res.json({ ...(await cantinaOperationResponse(repeated.rows[0].id)), repetida: true });
+    }
+    next(error);
+  } finally { client.release(); }
+});
+
+app.get('/api/admin/complejos/:id/cantina/operaciones', requireAnyAdmin, complexAccess, cantinaAccess, requireCantinaPermission('resultados'), async (req, res, next) => {
+  const type = ['venta', 'compra'].includes(req.query.tipo) ? req.query.tipo : null;
+  const from = cleanCantinaText(req.query.desde, 10);
+  const to = cleanCantinaText(req.query.hasta, 10);
+  try {
+    const clauses = ['o.complejo_id=$1']; const params = [req.complex.id];
+    if (type) { params.push(type); clauses.push(`o.tipo=$${params.length}`); }
+    if (from) { params.push(from); clauses.push(`o.fecha >= $${params.length}`); }
+    if (to) { params.push(to); clauses.push(`o.fecha <= $${params.length}`); }
+    const { rows } = await pool.query(
+      `SELECT o.*, COALESCE(u.name, 'Usuario eliminado') AS creado_por_nombre, COALESCE(r.nombre, '') AS reserva_nombre
+         FROM cantina_operaciones o LEFT JOIN "user" u ON u.id=o.created_by LEFT JOIN reservas r ON r.id=o.reserva_id
+        WHERE ${clauses.join(' AND ')} ORDER BY o.fecha DESC,o.created_at DESC LIMIT 200`, params,
+    );
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/complejos/:id/cantina/operaciones/:operationId/anular', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, cantinaAccess, async (req, res, next) => {
+  const operationId = Number(req.params.operationId);
+  const motive = cleanCantinaText(req.body?.motivo, 250);
+  if (!Number.isSafeInteger(operationId) || operationId < 1 || !motive) return res.status(400).json({ error: 'Indicá la operación y el motivo de anulación.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const operation = await client.query('SELECT * FROM cantina_operaciones WHERE id=$1 AND complejo_id=$2 FOR UPDATE', [operationId, req.complex.id]);
+    const current = operation.rows[0];
+    if (!current) throw Object.assign(new Error('Operación no encontrada.'), { status: 404, expose: true });
+    const neededPermission = current.tipo === 'venta' ? 'vender' : 'comprar';
+    if (!req.cantinaPermissions?.has(neededPermission)) throw Object.assign(new Error('No tenés permiso para anular esta operación.'), { status: 403, expose: true });
+    if (current.estado === 'anulada') throw Object.assign(new Error('Esta operación ya fue anulada.'), { status: 409, expose: true });
+    const items = await client.query('SELECT * FROM cantina_operacion_items WHERE operacion_id=$1 ORDER BY producto_id FOR UPDATE', [operationId]);
+    const productIds = items.rows.map((item) => item.producto_id);
+    await client.query('SELECT id FROM cantina_productos WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE', [productIds]);
+    for (const item of items.rows) {
+      const delta = current.tipo === 'venta' ? item.cantidad : -item.cantidad;
+      await client.query('UPDATE cantina_productos SET stock_actual=stock_actual+$1,updated_at=NOW() WHERE id=$2', [delta, item.producto_id]);
+      await client.query(
+        `INSERT INTO cantina_movimientos_stock (complejo_id,producto_id,operacion_id,tipo,cantidad,motivo,created_by)
+         VALUES ($1,$2,$3,'anulacion',$4,$5,$6)`, [req.complex.id, item.producto_id, operationId, delta, motive, req.user.id],
+      );
+    }
+    await client.query("UPDATE cantina_operaciones SET estado='anulada',anulada_at=NOW(),anulada_por=$1,motivo_anulacion=$2 WHERE id=$3", [req.user.id, motive, operationId]);
+    const response = await cantinaOperationResponse(operationId, client);
+    await client.query('COMMIT');
+    res.json(response);
+  } catch (error) { await client.query('ROLLBACK').catch(() => {}); next(error); } finally { client.release(); }
+});
+
+app.get('/api/admin/complejos/:id/cantina/movimientos', requireAnyAdmin, complexAccess, cantinaAccess, requireCantinaPermission('resultados'), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.*, p.nombre AS producto_nombre, COALESCE(u.name,'Usuario eliminado') AS creado_por_nombre
+         FROM cantina_movimientos_stock m JOIN cantina_productos p ON p.id=m.producto_id
+         LEFT JOIN "user" u ON u.id=m.created_by WHERE m.complejo_id=$1 ORDER BY m.created_at DESC LIMIT 200`, [req.complex.id],
+    );
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/complejos/:id/cantina/turnos', requireAnyAdmin, complexAccess, cantinaAccess, requireCantinaPermission('vender'), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT r.id,r.nombre,r.fecha::text,r.hora,COALESCE(c.nombre,'Cancha') AS cancha
+         FROM reservas r JOIN canchas c ON c.id=r.cancha_id
+        WHERE c.complejo_id=$1 AND r.estado IN ('confirmada','pendiente_pago') AND r.fecha >= $2
+        ORDER BY r.fecha,r.hora LIMIT 80`, [req.complex.id, buenosAiresToday()],
+    );
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/complejos/:id/cantina/catalogo/copiar', requireAnyAdmin, requireSubscriptionWrite, complexAccess, requireWritableComplex, cantinaAccess, requireCantinaPermission('stock'), async (req, res, next) => {
+  if (req.user.role !== 'superadmin' && req.adminAccess?.type !== 'owner') return res.status(403).json({ error: 'Solo el titular puede copiar catálogos entre complejos.' });
+  const sourceId = Number(req.body?.origen_complejo_id);
+  if (!Number.isSafeInteger(sourceId) || sourceId < 1 || sourceId === Number(req.complex.id)) return res.status(400).json({ error: 'Elegí otro complejo como origen.' });
+  try {
+    const source = await pool.query(
+      `SELECT id FROM complejos WHERE id=$1 ${req.user.role === 'superadmin' ? '' : 'AND owner_user_id=$2'}`,
+      req.user.role === 'superadmin' ? [sourceId] : [sourceId, managedOwnerId(req)],
+    );
+    if (!source.rows[0]) return res.status(404).json({ error: 'No encontré el complejo de origen.' });
+    const products = await pool.query('SELECT nombre,categoria,sku,precio_venta_ars,stock_minimo,activo FROM cantina_productos WHERE complejo_id=$1 AND activo=true ORDER BY id', [sourceId]);
+    let copied = 0; let skipped = 0;
+    for (const product of products.rows) {
+      const result = await pool.query(
+        `INSERT INTO cantina_productos (complejo_id,nombre,categoria,sku,precio_venta_ars,stock_minimo,activo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id`,
+        [req.complex.id, product.nombre, product.categoria, product.sku, product.precio_venta_ars, product.stock_minimo, product.activo],
+      );
+      if (result.rowCount) copied += 1; else skipped += 1;
+    }
+    res.status(201).json({ copiados: copied, omitidos: skipped });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/subadmins/:id/cantina-permisos', requireAnyAdmin, requireTeamAdmin, async (req, res, next) => {
+  const accessId = Number(req.params.id);
+  if (!Number.isSafeInteger(accessId) || accessId < 1) return res.status(400).json({ error: 'Subadministrador inválido.' });
+  try {
+    const access = await pool.query('SELECT id FROM accesos_subadmin WHERE id=$1 AND owner_user_id=$2', [accessId, managedOwnerId(req)]);
+    if (!access.rows[0]) return res.status(404).json({ error: 'Subadministrador no encontrado.' });
+    const { rows } = await pool.query('SELECT * FROM cantina_permisos_subadmin WHERE acceso_subadmin_id=$1 ORDER BY complejo_id', [accessId]);
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.put('/api/admin/subadmins/:id/cantina-permisos', requireAnyAdmin, requireTeamAdmin, async (req, res, next) => {
+  const accessId = Number(req.params.id);
+  const permissions = Array.isArray(req.body?.permisos) ? req.body.permisos : null;
+  if (!Number.isSafeInteger(accessId) || accessId < 1 || !permissions || permissions.length > 100) return res.status(400).json({ error: 'Permisos inválidos.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const access = await client.query('SELECT id FROM accesos_subadmin WHERE id=$1 AND owner_user_id=$2 FOR UPDATE', [accessId, managedOwnerId(req)]);
+    if (!access.rows[0]) throw Object.assign(new Error('Subadministrador no encontrado.'), { status: 404, expose: true });
+    const complexIds = permissions.map((permission) => Number(permission?.complejo_id));
+    if (complexIds.some((id) => !Number.isSafeInteger(id) || id < 1) || new Set(complexIds).size !== complexIds.length) throw Object.assign(new Error('Hay complejos repetidos o inválidos.'), { status: 400, expose: true });
+    if (complexIds.length) {
+      const complexes = await client.query('SELECT id FROM complejos WHERE owner_user_id=$1 AND id=ANY($2::bigint[])', [managedOwnerId(req), complexIds]);
+      if (complexes.rowCount !== complexIds.length) throw Object.assign(new Error('Uno de los complejos no pertenece a tu cuenta.'), { status: 403, expose: true });
+    }
+    await client.query('DELETE FROM cantina_permisos_subadmin WHERE acceso_subadmin_id=$1', [accessId]);
+    for (const permission of permissions) {
+      await client.query(
+        `INSERT INTO cantina_permisos_subadmin (acceso_subadmin_id,complejo_id,puede_vender,puede_comprar,puede_stock,puede_resultados)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [accessId, Number(permission.complejo_id), permission.puede_vender === true, permission.puede_comprar === true, permission.puede_stock === true, permission.puede_resultados === true],
+      );
+    }
+    await client.query('COMMIT');
+    res.status(204).end();
+  } catch (error) { await client.query('ROLLBACK').catch(() => {}); next(error); } finally { client.release(); }
 });
 
 app.get('/api/admin/session', requireAnyAdmin, async (req, res, next) => {

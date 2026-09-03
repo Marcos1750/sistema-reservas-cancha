@@ -154,6 +154,15 @@ const DEMO_SCHEDULE = [1, 2, 3, 4, 5, 6, 0].flatMap((dayOfWeek) => (
 
 const DEMO_BLOCKS = [{ id: 'demo-bloqueo-1', fecha: shiftDate(9), motivo: 'Mantenimiento del césped' }];
 
+let demoCantinaProducts = [
+  { id: 'demo-producto-1', complejo_id: 'demo-complejo', nombre: 'Agua 600 ml', categoria: 'Bebidas', sku: 'AG-600', precio_venta_ars: 1800, stock_actual: 12, stock_minimo: 5, activo: true },
+  { id: 'demo-producto-2', complejo_id: 'demo-complejo', nombre: 'Gaseosa lata', categoria: 'Bebidas', sku: 'GA-LAT', precio_venta_ars: 2500, stock_actual: 3, stock_minimo: 5, activo: true },
+  { id: 'demo-producto-3', complejo_id: 'demo-complejo', nombre: 'Papas clásicas', categoria: 'Snacks', sku: 'PA-CL', precio_venta_ars: 2200, stock_actual: -1, stock_minimo: 4, activo: true },
+];
+let demoCantinaOperations = [];
+let demoCantinaMovements = [];
+let demoCantinaSuppliers = [{ id: 'demo-proveedor-1', complejo_id: 'demo-complejo', nombre: 'Distribuidora Centro', activo: true }];
+
 export const demoAdminSession = () => ({
   authenticated: true,
   user: DEMO_USER,
@@ -168,7 +177,7 @@ const DEMO_WRITE_ERROR = 'Modo demo: los cambios no se guardan porque no hay con
  * ejemplo y corta las escrituras con un mensaje explícito. */
 export async function demoRequest(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
-  if (method !== 'GET') throw new Error(DEMO_WRITE_ERROR);
+  const body = options.body ? JSON.parse(options.body) : {};
 
   if (path === '/api/admin/session') return demoAdminSession();
   if (path === '/api/suscripcion') return demoSubscription();
@@ -183,5 +192,67 @@ export async function demoRequest(path, options = {}) {
   if (/\/horarios$/.test(path)) return DEMO_SCHEDULE;
   if (/\/excepciones$/.test(path)) return [];
   if (/\/bloqueos$/.test(path)) return DEMO_BLOCKS;
+  if (path === '/api/admin/cantina/complejos') return demoComplexes().map((complex) => ({
+    id: complex.id, owner_user_id: complex.owner_user_id, nombre: complex.nombre, ciudad: complex.ciudad,
+    provincia: complex.provincia, activo: complex.activo, suspendido_suscripcion: complex.suspendido_suscripcion,
+  }));
+  const cantinaMatch = path.match(/^\/api\/admin\/complejos\/demo-complejo\/cantina(?:\/(.*))?$/);
+  if (cantinaMatch) {
+    const segment = cantinaMatch[1] || '';
+    if (method === 'GET' && segment === 'productos') return { productos: demoCantinaProducts, permisos: ['vender', 'comprar', 'stock', 'resultados'] };
+    if (method === 'GET' && segment === 'resumen') {
+      const active = demoCantinaOperations.filter((operation) => operation.estado === 'activa');
+      return { fecha: shiftDate(0), ventas: active.filter((operation) => operation.tipo === 'venta').reduce((sum, operation) => sum + operation.total_ars, 0), compras: active.filter((operation) => operation.tipo === 'compra').reduce((sum, operation) => sum + operation.total_ars, 0), cantidad_ventas: active.filter((operation) => operation.tipo === 'venta').length, negativos: demoCantinaProducts.filter((product) => product.stock_actual < 0).length, bajos: demoCantinaProducts.filter((product) => product.stock_actual >= 0 && product.stock_actual <= product.stock_minimo).length, movimientos: demoCantinaMovements.slice(0, 8), permisos: ['vender', 'comprar', 'stock', 'resultados'] };
+    }
+    if (method === 'GET' && segment === 'operaciones') return demoCantinaOperations;
+    if (method === 'GET' && segment === 'movimientos') return demoCantinaMovements;
+    if (method === 'GET' && segment === 'turnos') return demoBookings().filter((booking) => booking.estado !== 'cancelada' && booking.estado !== 'expirada');
+    if (method === 'GET' && segment === 'proveedores') return demoCantinaSuppliers;
+    if (method === 'POST' && segment === 'productos') {
+      const product = { ...body, id: `demo-producto-${Date.now()}`, complejo_id: 'demo-complejo', precio_venta_ars: Number(body.precio_venta_ars), stock_minimo: Number(body.stock_minimo || 0), stock_actual: 0, activo: body.activo !== false };
+      demoCantinaProducts = [...demoCantinaProducts, product]; return product;
+    }
+    const productPatch = segment.match(/^productos\/([^/]+)$/);
+    if (method === 'PATCH' && productPatch) {
+      let updated;
+      demoCantinaProducts = demoCantinaProducts.map((product) => String(product.id) === productPatch[1] ? (updated = { ...product, ...body, precio_venta_ars: Number(body.precio_venta_ars), stock_minimo: Number(body.stock_minimo) }, updated) : product);
+      return updated;
+    }
+    if (method === 'POST' && segment === 'ajustes') {
+      const product = demoCantinaProducts.find((item) => String(item.id) === String(body.producto_id));
+      if (!product) throw new Error('Producto no encontrado.');
+      product.stock_actual += Number(body.cantidad);
+      const movement = { id: `demo-movimiento-${Date.now()}`, producto_nombre: product.nombre, tipo: 'ajuste', cantidad: Number(body.cantidad), motivo: body.motivo, usuario_nombre: 'Admin Demo', creado_por_nombre: 'Admin Demo', created_at: new Date().toISOString() };
+      demoCantinaMovements = [movement, ...demoCantinaMovements]; return { producto: product, movimiento };
+    }
+    if (method === 'POST' && segment === 'proveedores') {
+      const supplier = { id: `demo-proveedor-${Date.now()}`, complejo_id: 'demo-complejo', nombre: body.nombre, activo: true };
+      demoCantinaSuppliers = [...demoCantinaSuppliers, supplier]; return supplier;
+    }
+    const operationMatch = segment.match(/^(ventas|compras)$/);
+    if (method === 'POST' && operationMatch) {
+      const tipo = operationMatch[1] === 'ventas' ? 'venta' : 'compra';
+      const items = body.items.map((item) => {
+        const product = demoCantinaProducts.find((candidate) => String(candidate.id) === String(item.producto_id));
+        const price = tipo === 'venta' ? product.precio_venta_ars : Number(item.precio_unitario_ars);
+        product.stock_actual += tipo === 'venta' ? -Number(item.cantidad) : Number(item.cantidad);
+        const movement = { id: `demo-movimiento-${Date.now()}-${product.id}`, producto_nombre: product.nombre, tipo, cantidad: tipo === 'venta' ? -Number(item.cantidad) : Number(item.cantidad), usuario_nombre: 'Admin Demo', creado_por_nombre: 'Admin Demo', created_at: new Date().toISOString() };
+        demoCantinaMovements = [movement, ...demoCantinaMovements];
+        return { ...item, producto_nombre: product.nombre, precio_unitario_ars: price, total_ars: price * Number(item.cantidad) };
+      });
+      const operation = { id: `demo-operacion-${Date.now()}`, complejo_id: 'demo-complejo', tipo, estado: 'activa', fecha: body.fecha, total_ars: items.reduce((sum, item) => sum + item.total_ars, 0), medio_pago: body.medio_pago || null, creado_por_nombre: 'Admin Demo', reserva_nombre: '', items };
+      demoCantinaOperations = [operation, ...demoCantinaOperations]; return operation;
+    }
+    const cancelMatch = segment.match(/^operaciones\/([^/]+)\/anular$/);
+    if (method === 'POST' && cancelMatch) {
+      const operation = demoCantinaOperations.find((item) => String(item.id) === cancelMatch[1]);
+      if (!operation || operation.estado === 'anulada') throw new Error('Esta operación ya fue anulada.');
+      operation.estado = 'anulada';
+      operation.items.forEach((item) => { const product = demoCantinaProducts.find((candidate) => String(candidate.id) === String(item.producto_id)); product.stock_actual += operation.tipo === 'venta' ? Number(item.cantidad) : -Number(item.cantidad); });
+      return operation;
+    }
+    if (method === 'POST' && segment === 'catalogo/copiar') return { copiados: 0, omitidos: 0 };
+  }
+  if (method !== 'GET') throw new Error(DEMO_WRITE_ERROR);
   return [];
 }

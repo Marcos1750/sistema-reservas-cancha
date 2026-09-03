@@ -272,6 +272,88 @@ async function migrate(client = pool) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS cantina_productos (
+      id BIGSERIAL PRIMARY KEY,
+      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE CASCADE,
+      nombre TEXT NOT NULL CHECK (char_length(trim(nombre)) BETWEEN 2 AND 120),
+      categoria TEXT NOT NULL DEFAULT '',
+      sku TEXT NOT NULL DEFAULT '',
+      precio_venta_ars INTEGER NOT NULL CHECK (precio_venta_ars >= 0),
+      stock_actual INTEGER NOT NULL DEFAULT 0,
+      stock_minimo INTEGER NOT NULL DEFAULT 0 CHECK (stock_minimo >= 0),
+      activo BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS cantina_proveedores (
+      id BIGSERIAL PRIMARY KEY,
+      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE CASCADE,
+      nombre TEXT NOT NULL CHECK (char_length(trim(nombre)) BETWEEN 2 AND 120),
+      telefono TEXT NOT NULL DEFAULT '',
+      nota TEXT NOT NULL DEFAULT '',
+      activo BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS cantina_permisos_subadmin (
+      id BIGSERIAL PRIMARY KEY,
+      acceso_subadmin_id BIGINT NOT NULL REFERENCES accesos_subadmin(id) ON DELETE CASCADE,
+      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE CASCADE,
+      puede_vender BOOLEAN NOT NULL DEFAULT false,
+      puede_comprar BOOLEAN NOT NULL DEFAULT false,
+      puede_stock BOOLEAN NOT NULL DEFAULT false,
+      puede_resultados BOOLEAN NOT NULL DEFAULT false,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (acceso_subadmin_id, complejo_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS cantina_operaciones (
+      id BIGSERIAL PRIMARY KEY,
+      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE RESTRICT,
+      tipo TEXT NOT NULL CHECK (tipo IN ('venta', 'compra')),
+      estado TEXT NOT NULL DEFAULT 'activa' CHECK (estado IN ('activa', 'anulada')),
+      fecha DATE NOT NULL,
+      total_ars INTEGER NOT NULL CHECK (total_ars >= 0),
+      medio_pago TEXT CHECK (medio_pago IS NULL OR medio_pago IN ('efectivo', 'transferencia', 'mercado_pago', 'otro')),
+      proveedor_id BIGINT REFERENCES cantina_proveedores(id) ON DELETE SET NULL,
+      proveedor_nombre TEXT NOT NULL DEFAULT '',
+      reserva_id BIGINT REFERENCES reservas(id) ON DELETE SET NULL,
+      referencia TEXT NOT NULL DEFAULT '',
+      nota TEXT NOT NULL DEFAULT '',
+      request_key TEXT NOT NULL,
+      created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      anulada_at TIMESTAMPTZ,
+      anulada_por TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+      motivo_anulacion TEXT NOT NULL DEFAULT '',
+      UNIQUE (complejo_id, request_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS cantina_operacion_items (
+      id BIGSERIAL PRIMARY KEY,
+      operacion_id BIGINT NOT NULL REFERENCES cantina_operaciones(id) ON DELETE RESTRICT,
+      producto_id BIGINT NOT NULL REFERENCES cantina_productos(id) ON DELETE RESTRICT,
+      producto_nombre TEXT NOT NULL,
+      cantidad INTEGER NOT NULL CHECK (cantidad > 0),
+      precio_unitario_ars INTEGER NOT NULL CHECK (precio_unitario_ars >= 0),
+      total_ars INTEGER NOT NULL CHECK (total_ars >= 0),
+      UNIQUE (operacion_id, producto_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS cantina_movimientos_stock (
+      id BIGSERIAL PRIMARY KEY,
+      complejo_id BIGINT NOT NULL REFERENCES complejos(id) ON DELETE CASCADE,
+      producto_id BIGINT NOT NULL REFERENCES cantina_productos(id) ON DELETE RESTRICT,
+      operacion_id BIGINT REFERENCES cantina_operaciones(id) ON DELETE RESTRICT,
+      tipo TEXT NOT NULL CHECK (tipo IN ('compra', 'venta', 'ajuste', 'anulacion')),
+      cantidad INTEGER NOT NULL CHECK (cantidad <> 0),
+      motivo TEXT NOT NULL DEFAULT '',
+      created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     ALTER TABLE reservas DROP CONSTRAINT IF EXISTS reservas_fecha_hora_key;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL;
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS cancha_id BIGINT REFERENCES canchas(id) ON DELETE SET NULL;
@@ -443,6 +525,18 @@ async function migrate(client = pool) {
       ON accesos_subadmin (lower(email));
     CREATE INDEX IF NOT EXISTS accesos_subadmin_owner_idx
       ON accesos_subadmin (owner_user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS cantina_productos_sku_uidx
+      ON cantina_productos (complejo_id, lower(sku)) WHERE sku <> '';
+    CREATE UNIQUE INDEX IF NOT EXISTS cantina_productos_nombre_uidx
+      ON cantina_productos (complejo_id, lower(nombre));
+    CREATE INDEX IF NOT EXISTS cantina_productos_complejo_idx
+      ON cantina_productos (complejo_id, activo, nombre);
+    CREATE INDEX IF NOT EXISTS cantina_operaciones_complejo_fecha_idx
+      ON cantina_operaciones (complejo_id, fecha DESC, created_at DESC);
+    CREATE INDEX IF NOT EXISTS cantina_movimientos_complejo_idx
+      ON cantina_movimientos_stock (complejo_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS cantina_movimientos_producto_idx
+      ON cantina_movimientos_stock (producto_id, created_at DESC);
 
     INSERT INTO planes_suscripcion (codigo, nombre, precio_ars, max_complejos, max_canchas, prueba_dias)
     VALUES

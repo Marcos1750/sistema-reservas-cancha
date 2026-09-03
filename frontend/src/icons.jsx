@@ -23,6 +23,10 @@ export function Icon({ name, size = 20, strokeWidth = 1.8, className = '' }) {
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     pitch: <><rect x="4" y="4" width="16" height="16" rx="1" /><path d="M12 4v16M4 12h16M7 8h3v8H7M17 8h-3v8h3" /></>,
     spark: <><path d="M12 2.8 13.5 9l5.7 1.5-5.7 1.5-1.5 6.2-1.5-6.2-5.7-1.5L10.5 9 12 2.8Z" /><path d="m19 3 .5 2 1.8.5-1.8.5L19 8l-.5-2-1.8-.5 1.8-.5L19 3Z" /></>,
+    cart: <><path d="M3.5 5h2l1.8 10.2h9.7L20 8H6.1" /><circle cx="9" cy="19" r="1.3" /><circle cx="17" cy="19" r="1.3" /></>,
+    box: <><path d="m4 7.5 8-4 8 4v9l-8 4-8-4v-9Z" /><path d="m4 7.5 8 4 8-4M12 11.5v9" /></>,
+    receipt: <><path d="M6 3.5h12v17l-2.4-1.7-2.4 1.7-2.4-1.7-2.4 1.7L6 20.5v-17Z" /><path d="M9 8h6M9 12h6" /></>,
+    warning: <><path d="M12 3.5 21 20H3l9-16.5Z" /><path d="M12 9v4.5M12 16.5v.1" /></>,
   };
 
   return (

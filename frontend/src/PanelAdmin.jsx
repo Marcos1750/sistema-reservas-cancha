@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,8 @@ import {
   enableDemoAdmin,
   isDemoAdmin,
 } from "./demoAdmin";
+
+const CantinaManager = lazy(() => import('./CantinaManager'));
 
 const sports = ["Fútbol 5", "Pádel", "Tenis"];
 const CALENDAR_PAGE_SIZE = 15;
@@ -1884,11 +1886,13 @@ function SuperadminManager({ admins, request, reload }) {
   );
 }
 
-function SubadminManager({ subadmins, request, reload }) {
+function SubadminManager({ subadmins, complexes, request, reload }) {
   const confirm = useConfirm();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState(null);
+  const [cantinaMemberId, setCantinaMemberId] = useState(null);
+  const [cantinaPermissions, setCantinaPermissions] = useState([]);
   const invite = async (event) => {
     event.preventDefault();
     setMessage("");
@@ -1930,6 +1934,32 @@ function SubadminManager({ subadmins, request, reload }) {
       setBusyId(null);
     }
   };
+  const configureCantina = async (member) => {
+    if (member.estado !== "activo") {
+      setMessage("La persona tiene que ingresar una vez antes de recibir permisos de Cantina.");
+      return;
+    }
+    setBusyId(member.id);
+    setMessage("");
+    try {
+      const saved = await request(`/api/admin/subadmins/${member.id}/cantina-permisos`);
+      setCantinaPermissions(complexes.map((complex) => {
+        const current = saved.find((permission) => Number(permission.complejo_id) === Number(complex.id));
+        return { complejo_id: complex.id, puede_vender: current?.puede_vender === true, puede_comprar: current?.puede_comprar === true, puede_stock: current?.puede_stock === true, puede_resultados: current?.puede_resultados === true };
+      }));
+      setCantinaMemberId(member.id);
+    } catch (error) { setMessage(error.message); } finally { setBusyId(null); }
+  };
+  const saveCantinaPermissions = async () => {
+    if (!cantinaMemberId) return;
+    setBusyId(cantinaMemberId);
+    setMessage("");
+    try {
+      await request(`/api/admin/subadmins/${cantinaMemberId}/cantina-permisos`, { method: "PUT", body: JSON.stringify({ permisos: cantinaPermissions }) });
+      setCantinaMemberId(null);
+      setMessage("Permisos de Cantina actualizados.");
+    } catch (error) { setMessage(error.message); } finally { setBusyId(null); }
+  };
   return (
     <section className="admin-bookings-section">
       <div className="admin-section-heading">
@@ -1954,21 +1984,21 @@ function SubadminManager({ subadmins, request, reload }) {
       />
       <div className="admin-access-list">
         {subadmins.length ? subadmins.map((member) => (
-          <div key={member.id} className="admin-access-row">
-            <div>
-              <strong>{member.name}</strong>
-              <small>{member.email}</small>
+          <div key={member.id} className="admin-access-row-wrap">
+            <div className="admin-access-row">
+              <div><strong>{member.name}</strong><small>{member.email}</small></div>
+              <span>{member.estado === "pendiente" ? "Pendiente de ingreso" : "Subadmin activo"}</span>
+              <Button variant="secondary" size="sm" type="button" disabled={busyId === member.id} onClick={() => configureCantina(member)}>Cantina</Button>
+              <Button variant="secondary" size="sm" type="button" disabled={busyId === member.id} onClick={() => revoke(member)}>{member.estado === "pendiente" ? "Cancelar" : "Quitar acceso"}</Button>
             </div>
-            <span>{member.estado === "pendiente" ? "Pendiente de ingreso" : "Subadmin activo"}</span>
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              disabled={busyId === member.id}
-              onClick={() => revoke(member)}
-            >
-              {member.estado === "pendiente" ? "Cancelar" : "Quitar acceso"}
-            </Button>
+            {cantinaMemberId === member.id && <div className="cantina-team-permissions">
+              <strong>Accesos de Cantina por complejo</strong><p>Elegí qué puede hacer {member.name} en cada sede.</p>
+              {cantinaPermissions.map((permission, index) => {
+                const complex = complexes.find((item) => Number(item.id) === Number(permission.complejo_id));
+                return <div className="cantina-team-permissions__row" key={permission.complejo_id}><b>{complex?.nombre || "Complejo"}</b>{[["puede_vender", "Vender"], ["puede_comprar", "Compras"], ["puede_stock", "Stock"], ["puede_resultados", "Resultados"]].map(([field, label]) => <label key={field}><input type="checkbox" checked={permission[field]} onChange={(event) => setCantinaPermissions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: event.target.checked } : item))} />{label}</label>)}</div>;
+              })}
+              <div className="cantina-team-permissions__actions"><Button type="button" variant="secondary" size="sm" onClick={() => setCantinaMemberId(null)}>Cancelar</Button><Button type="button" size="sm" disabled={busyId === member.id} onClick={saveCantinaPermissions}>Guardar permisos</Button></div>
+            </div>}
           </div>
         )) : (
           <div className="admin-team-empty">
@@ -2673,6 +2703,7 @@ export default function PanelAdmin() {
     ["overview", "Resumen", "home"],
     ["calendar", "Calendario", "calendar"],
     ["complexes", "Complejos", "pitch"],
+    ["cantina", "Cantina", "cart"],
     ...(canManageFinances ? [["subscriptions", "Suscripciones", "spark"]] : []),
     ...(isOwnerAdmin ? [["subadmins", "Equipo", "users"]] : []),
     ...(isSuperadmin ? [["admins", "Administradores", "user"]] : []),
@@ -2919,11 +2950,20 @@ export default function PanelAdmin() {
             adminAccess={adminAccess}
           />
         )}
+        {activeSection === "cantina" && (
+          <Suspense fallback={<LoadingScreen message="Preparando la cantina…" />}>
+            <CantinaManager
+              request={request}
+              canManageTeam={isOwnerAdmin}
+              isSuperadmin={isSuperadmin}
+            />
+          </Suspense>
+        )}
         {activeSection === "subscriptions" && canManageFinances && (
           <SubscriptionManager isSuperadmin={isSuperadmin} request={request} />
         )}
         {activeSection === "subadmins" && isOwnerAdmin && (
-          <SubadminManager subadmins={subadmins} request={request} reload={reload} />
+          <SubadminManager subadmins={subadmins} complexes={complexes} request={request} reload={reload} />
         )}
         {activeSection === "admins" && isSuperadmin && (
           <SuperadminManager
