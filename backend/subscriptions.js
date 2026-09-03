@@ -1,4 +1,5 @@
 export const DEFAULT_TRIAL_DAYS = 30;
+export const GRACE_PERIOD_DAYS = 10;
 
 export const SUBSCRIPTION_PLANS = {
   fundador: { code: 'fundador', name: 'Fundador', price: 19900, maxComplexes: 1, maxCourts: 6, trialDays: DEFAULT_TRIAL_DAYS, founder: true },

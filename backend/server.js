@@ -7,7 +7,7 @@ import { del } from '@vercel/blob';
 import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getAuthorizedPayment, getPayment, getSubscription, getSubscriptionPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchAuthorizedPayments, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
-import { DEFAULT_TRIAL_DAYS, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
+import { DEFAULT_TRIAL_DAYS, GRACE_PERIOD_DAYS, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
 import {
   auth,
   migrateAuth,
@@ -572,7 +572,7 @@ const EMAIL_COPY = {
   prueba_3: ['Tu prueba termina en 3 días', 'Mercado Pago realizará el primer cobro al finalizar la prueba.'],
   primer_pago: ['Tu suscripción está activa', 'Recibimos tu primer pago y NEW MATCH ya está activo.'],
   renovacion_3: ['Tu renovación es en 3 días', 'Te avisamos con anticipación sobre tu próximo cobro.'],
-  cobro_fallido: ['No pudimos acreditar tu cobro', 'Tu servicio sigue activo durante 7 días mientras Mercado Pago reintenta el cobro.'],
+  cobro_fallido: ['No pudimos acreditar tu cobro', 'Tu servicio sigue activo durante 10 días mientras Mercado Pago reintenta el cobro.'],
   gracia_3: ['Tu período de gracia termina en 3 días', 'Actualizá el medio de pago en Mercado Pago para mantener el servicio activo.'],
   pago_recuperado: ['Tu pago fue acreditado', 'Tu suscripción vuelve a estar activa.'],
   gracia_vencida: ['Tu suscripción venció', 'Tus complejos quedan en modo lectura hasta crear una nueva suscripción.'],
@@ -677,7 +677,7 @@ async function applyProviderSubscription(subscription, provider, eventType = 'pr
       founderSlot = slot.rows[0].n;
     }
     if (next === 'anulada' && !current.founder_consolidado) founderSlot = null;
-    const graceUntil = next === 'en_gracia' ? (current.gracia_hasta_at || addDays(new Date(), 7)) : null;
+    const graceUntil = next === 'en_gracia' ? (current.gracia_hasta_at || addDays(new Date(), GRACE_PERIOD_DAYS)) : null;
     const recovered = ['en_gracia', 'vencida'].includes(current.estado) && next === 'activa';
     await client.query(
       `UPDATE suscripciones

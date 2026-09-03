@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from '../subscriptions.js';
+import { GRACE_PERIOD_DAYS, authorizedPaymentOutcome, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from '../subscriptions.js';
 
 test('los planes comerciales tienen los límites acordados', () => {
   assert.deepEqual(planFor('fundador'), { code: 'fundador', name: 'Fundador', price: 19900, maxComplexes: 1, maxCourts: 6, trialDays: 30, founder: true });
@@ -8,6 +8,10 @@ test('los planes comerciales tienen los límites acordados', () => {
   assert.deepEqual(planFor('estandar').maxCourts, 6);
   assert.deepEqual(planFor('pro').maxComplexes, 3);
   assert.deepEqual(planFor('pro').maxCourts, 20);
+});
+
+test('el período de gracia coincide con la ventana de reintentos de Mercado Pago', () => {
+  assert.equal(GRACE_PERIOD_DAYS, 10);
 });
 
 test('la gracia mantiene el acceso y la vencida lo bloquea', () => {
