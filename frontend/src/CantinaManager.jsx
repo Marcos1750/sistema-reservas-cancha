@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useAlert, useConfirm } from './lib/confirmDialog';
+import { useConfirm } from './lib/confirmDialog';
 import { Icon } from './icons';
+import { useToast } from './components/motion/animated-toast-stack';
+import { BeUISelect } from './components/motion/select';
 
 const tabs = [
   ['overview', 'Resumen', 'home'],
@@ -41,7 +43,7 @@ function StockPill({ product }) {
 
 export default function CantinaManager({ request, canManageTeam = false, isSuperadmin = false }) {
   const confirm = useConfirm();
-  const alert = useAlert();
+  const { notify } = useToast();
   const [complexes, setComplexes] = useState([]);
   const [complexId, setComplexId] = useState('');
   const [permissions, setPermissions] = useState([]);
@@ -120,10 +122,19 @@ export default function CantinaManager({ request, canManageTeam = false, isSuper
     await loadComplexes();
     await loadCantina();
   };
-  const run = async (action) => {
+  const reportError = (message) => {
+    setError(message);
+    notify({ title: 'No se pudo completar', description: message, status: 'error' });
+  };
+  const run = async (action, successMessage) => {
     setBusy(true); setError('');
-    try { await action(); await refresh(); }
-    catch (actionError) { setError(actionError.message); }
+    try {
+      const result = await action();
+      if (result === false) return;
+      await refresh();
+      if (successMessage) notify({ title: 'Listo', description: typeof successMessage === 'function' ? successMessage(result) : successMessage, status: 'success' });
+    }
+    catch (actionError) { reportError(actionError.message); }
     finally { setBusy(false); }
   };
   const addProductToCart = (product) => setCart((current) => ({
@@ -141,7 +152,7 @@ export default function CantinaManager({ request, canManageTeam = false, isSuper
       const path = `/api/admin/complejos/${complexId}/cantina/productos${editingProductId ? `/${editingProductId}` : ''}`;
       await request(path, { method: editingProductId ? 'PATCH' : 'POST', body: JSON.stringify(productForm) });
       setProductForm(emptyProduct); setEditingProductId(null);
-    });
+    }, editingProductId ? 'Los cambios del producto ya están guardados.' : 'El producto se agregó al catálogo.');
   };
   const startProductEdit = (product) => {
     setEditingProductId(product.id);
@@ -149,13 +160,13 @@ export default function CantinaManager({ request, canManageTeam = false, isSuper
     setTab('products');
   };
   const archiveProduct = (product) => run(async () => {
-    if (!(await confirm({ title: `¿Archivar “${product.nombre}”?`, description: 'El historial se conserva y el producto deja de aparecer al vender.', confirmText: 'Archivar producto', tone: 'danger' }))) return;
+    if (!(await confirm({ title: `¿Archivar “${product.nombre}”?`, description: 'El historial se conserva y el producto deja de aparecer al vender.', confirmText: 'Archivar producto', tone: 'danger' }))) return false;
     await request(`/api/admin/complejos/${complexId}/cantina/productos/${product.id}`, { method: 'PATCH', body: JSON.stringify({ ...product, activo: false }) });
-  });
+  }, 'El producto se archivó.');
   const submitSale = () => run(async () => {
     if (!cartEntries.length) throw new Error('Agregá al menos un producto para registrar la venta.');
     const negative = cartEntries.filter(({ product, quantity }) => Number(product.stock_actual) - quantity < 0);
-    if (negative.length && !(await confirm({ title: 'La venta dejará stock negativo', description: `${negative.map(({ product }) => product.nombre).join(', ')} quedará para conciliar. Podés continuar y reponerlo después.`, confirmText: 'Registrar igual', tone: 'danger' }))) return;
+    if (negative.length && !(await confirm({ title: 'La venta dejará stock negativo', description: `${negative.map(({ product }) => product.nombre).join(', ')} quedará para conciliar. Podés continuar y reponerlo después.`, confirmText: 'Registrar igual', tone: 'danger' }))) return false;
     await request(`/api/admin/complejos/${complexId}/cantina/ventas`, {
       method: 'POST', body: JSON.stringify({
         items: cartEntries.map(({ product, quantity }) => ({ producto_id: product.id, cantidad: quantity, precio_unitario_ars: product.precio_venta_ars })),
@@ -163,12 +174,12 @@ export default function CantinaManager({ request, canManageTeam = false, isSuper
       }),
     });
     setCart({}); setBookingId(''); setSaleNote('');
-  });
+  }, 'La venta quedó registrada.');
   const addPurchaseRow = () => {
     const product = activeProducts.find((item) => String(item.id) === String(purchaseProductId));
     const quantity = Number(purchaseQuantity); const price = Number(purchasePrice);
-    if (!product || !Number.isInteger(quantity) || quantity < 1 || !Number.isInteger(price) || price < 0) { setError('Elegí un producto, una cantidad y un costo válidos.'); return; }
-    if (purchaseRows.some((item) => item.producto_id === product.id)) { setError('Ese producto ya está en la compra.'); return; }
+    if (!product || !Number.isInteger(quantity) || quantity < 1 || !Number.isInteger(price) || price < 0) { reportError('Elegí un producto, una cantidad y un costo válidos.'); return; }
+    if (purchaseRows.some((item) => item.producto_id === product.id)) { reportError('Ese producto ya está en la compra.'); return; }
     setPurchaseRows((current) => [...current, { producto_id: product.id, producto_nombre: product.nombre, cantidad: quantity, precio_unitario_ars: price }]);
     setPurchaseProductId(''); setPurchaseQuantity('1'); setPurchasePrice(''); setError('');
   };
@@ -178,40 +189,40 @@ export default function CantinaManager({ request, canManageTeam = false, isSuper
       method: 'POST', body: JSON.stringify({ items: purchaseRows, proveedor_id: supplierId || null, proveedor_nombre: supplierName, nota: purchaseNote, fecha: today(), request_key: newKey('compra') }),
     });
     setPurchaseRows([]); setSupplierId(''); setSupplierName(''); setPurchaseNote('');
-  });
+  }, 'La compra repuso el stock correctamente.');
   const saveSupplier = () => run(async () => {
     if (supplierName.trim().length < 2) throw new Error('Ingresá el nombre del proveedor para guardarlo.');
     const created = await request(`/api/admin/complejos/${complexId}/cantina/proveedores`, { method: 'POST', body: JSON.stringify({ nombre: supplierName }) });
     setSupplierId(String(created.id)); setSupplierName('');
-  });
+  }, 'El proveedor quedó guardado.');
   const submitAdjustment = (event) => {
     event.preventDefault();
     run(async () => {
       await request(`/api/admin/complejos/${complexId}/cantina/ajustes`, { method: 'POST', body: JSON.stringify(adjustment) });
       setAdjustment({ producto_id: '', cantidad: '', motivo: '' });
-    });
+    }, 'El ajuste de stock quedó registrado.');
   };
   const cancelOperation = (operation) => run(async () => {
-    if (!(await confirm({ title: `¿Anular esta ${operation.tipo}?`, description: 'Se conservará la operación y se registrará el movimiento inverso de stock.', confirmText: 'Anular operación', tone: 'danger' }))) return;
+    if (!(await confirm({ title: `¿Anular esta ${operation.tipo}?`, description: 'Se conservará la operación y se registrará el movimiento inverso de stock.', confirmText: 'Anular operación', tone: 'danger' }))) return false;
     const motive = 'Anulada desde el panel de cantina';
     await request(`/api/admin/complejos/${complexId}/cantina/operaciones/${operation.id}/anular`, { method: 'POST', body: JSON.stringify({ motivo: motive }) });
-  });
+  }, 'La operación fue anulada y el stock se actualizó.');
   const copyCatalog = () => run(async () => {
     if (!sourceComplexId) throw new Error('Elegí el complejo desde el que querés copiar el catálogo.');
     const source = complexes.find((complex) => String(complex.id) === sourceComplexId);
-    if (!(await confirm({ title: `¿Copiar productos desde ${source?.nombre}?`, description: 'Se copiarán precios y mínimos. El stock empezará en cero y no se sobrescribirán productos existentes.', confirmText: 'Copiar catálogo' }))) return;
+    if (!(await confirm({ title: `¿Copiar productos desde ${source?.nombre}?`, description: 'Se copiarán precios y mínimos. El stock empezará en cero y no se sobrescribirán productos existentes.', confirmText: 'Copiar catálogo' }))) return false;
     const result = await request(`/api/admin/complejos/${complexId}/cantina/catalogo/copiar`, { method: 'POST', body: JSON.stringify({ origen_complejo_id: sourceComplexId }) });
-    alert({ title: 'Catálogo copiado', description: `${result.copiados} productos agregados${result.omitidos ? ` · ${result.omitidos} ya existían` : ''}.` });
     setSourceComplexId('');
-  });
+    return result;
+  }, (result) => `Catálogo copiado: ${result.copiados} productos agregados${result.omitidos ? ` · ${result.omitidos} ya existían` : ''}.`);
 
   if (!complexes.length && !error) return <section className="admin-bookings-section"><EmptyState title="Todavía no tenés una cantina disponible" body="Creá un complejo o pedí acceso a una sede para empezar a gestionar productos." /></section>;
   return <section className="admin-bookings-section cantina" aria-busy={busy}>
     <div className="cantina-heading">
       <div><h2>Cantina</h2><p>Ventas, stock y compras claros para cada complejo.</p></div>
-      <label className="cantina-complex-picker">Complejo<select value={complexId} onChange={(event) => setComplexId(event.target.value)}>{complexes.map((complex) => <option key={complex.id} value={complex.id}>{complex.nombre}</option>)}</select></label>
+      <div className="cantina-complex-picker"><span>Complejo</span><BeUISelect value={complexId} onValueChange={setComplexId} ariaLabel="Elegir complejo" options={complexes.map((complex) => ({ value: String(complex.id), label: complex.nombre }))} /></div>
     </div>
-    {error && <div className="cantina-feedback" role="alert">{error}</div>}
+    {error && <div className="cantina-feedback">{error}</div>}
     {activeComplex?.suspendido_suscripcion && <div className="cantina-feedback" role="status">Esta sede está suspendida: podés consultar la cantina, pero no registrar cambios.</div>}
     <div className="cantina-tabs" role="tablist" aria-label="Secciones de cantina">
       {tabs.filter(([id]) => id === 'overview' ? can('resultados') : id === 'sales' ? can('vender') : id === 'purchases' ? can('comprar') : id === 'products' ? can('stock') : can('resultados')).map(([id, label, icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}><Icon name={icon} size={17} />{label}</button>)}

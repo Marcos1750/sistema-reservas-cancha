@@ -17,6 +17,7 @@ import {
 import { getComplexTheme, getSportTheme } from "./sportTheme";
 import { useSessionWithFallback } from "./useSessionWithFallback";
 import { LoadingScreen } from "./LoadingScreen";
+import { AnimatedNumber } from "./components/motion/animated-number";
 import {
   demoRequest,
   disableDemoAdmin,
@@ -2821,19 +2822,19 @@ export default function PanelAdmin() {
             <section className="admin-stats">
               <div className="admin-stat admin-stat--primary">
                 <span className="admin-stat__label">TURNOS DE HOY</span>
-                <strong>{overviewMetrics.todayBookings}</strong>
+                <strong><AnimatedNumber value={overviewMetrics.todayBookings} /></strong>
                 <small className="admin-stat__description">Agenda de tus canchas</small>
               </div>
               <div className="admin-stat">
                 <span className="admin-stat__label">COMPLEJOS PUBLICADOS</span>
-                <strong>{publishedComplexes.length}</strong>
+                <strong><AnimatedNumber value={publishedComplexes.length} /></strong>
                 <small className="admin-stat__description">{publishedCourts.length} canchas publicadas</small>
               </div>
               <div className="admin-stat">
                 <span className="admin-stat__label">INGRESOS DE HOY</span>
                 <strong className="admin-stat__money">
                   <span>$</span>
-                  {overviewMetrics.todayIncome.toLocaleString("es-AR")}
+                  <AnimatedNumber value={overviewMetrics.todayIncome} />
                 </strong>
                 <small className="admin-stat__description">Turnos confirmados</small>
               </div>
@@ -2841,7 +2842,7 @@ export default function PanelAdmin() {
                 <span className="admin-stat__label">INGRESOS ESTE MES</span>
                 <strong className="admin-stat__money">
                   <span>$</span>
-                  {overviewMetrics.monthIncome.toLocaleString("es-AR")}
+                  <AnimatedNumber value={overviewMetrics.monthIncome} />
                 </strong>
                 <small className="admin-stat__description">Turnos confirmados</small>
               </div>
