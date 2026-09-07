@@ -3,9 +3,11 @@ import { ConfirmDialogProvider } from './components/ConfirmDialogProvider';
 import Reservas from './Login';
 import PanelAdmin from './PanelAdmin';
 import Planes from './Planes';
+import { ToastProvider } from './components/motion/animated-toast-stack';
 
 function App() {
   return (
+    <ToastProvider>
     <BrowserRouter>
       <ConfirmDialogProvider>
         <Routes>
@@ -17,6 +19,7 @@ function App() {
         </Routes>
       </ConfirmDialogProvider>
     </BrowserRouter>
+    </ToastProvider>
   );
 }
 
