@@ -7,7 +7,8 @@ import { del } from '@vercel/blob';
 import { handleUpload } from '@vercel/blob/client';
 import { migrate, pool } from './db.js';
 import { authorizationUrl, calculateDeposit, cancelSubscription, createCheckoutPreference, createSubscriptionCheckout, decryptSecret, encryptSecret, exchangeCode, getAuthorizedPayment, getPayment, getSubscription, getSubscriptionPayment, isValidWebhookSignature, paymentExpiry, readSignedState, refreshAccessToken, searchAuthorizedPayments, searchPayments, signedState, updateSubscriptionAmount } from './mercadopago.js';
-import { DEFAULT_TRIAL_DAYS, GRACE_PERIOD_DAYS, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
+import { GRACE_PERIOD_DAYS, canReuseSubscriptionCheckout, capabilitiesFor, deriveProviderSubscriptionState, isSubscriptionActive, planFor, providerNextPaymentDate, providerTrialWindow, publicSubscription, subscriptionCapacityRestrictionsRequired, subscriptionRestrictionsRequired, summarizeAuthorizedPayments } from './subscriptions.js';
+import { buildSubscriptionEmail } from './subscription-email.js';
 import { CANTINA_PERMISSIONS, cleanCantinaText, validateOperation, validateProduct, validateStockAdjustment } from './cantina.js';
 import {
   auth,
@@ -567,21 +568,6 @@ async function recordSubscriptionEvent(subscriptionId, type, payload = {}, provi
   );
 }
 
-const EMAIL_COPY = {
-  prueba_iniciada: ['Tu prueba de NEW MATCH empezó', `Tenés ${DEFAULT_TRIAL_DAYS} días para organizar tu complejo.`],
-  prueba_7: ['Tu prueba termina en 7 días', 'Revisá tu suscripción para asegurar la continuidad del servicio.'],
-  prueba_3: ['Tu prueba termina en 3 días', 'Mercado Pago realizará el primer cobro al finalizar la prueba.'],
-  primer_pago: ['Tu suscripción está activa', 'Recibimos tu primer pago y NEW MATCH ya está activo.'],
-  renovacion_3: ['Tu renovación es en 3 días', 'Te avisamos con anticipación sobre tu próximo cobro.'],
-  cobro_fallido: ['No pudimos acreditar tu cobro', 'Tu servicio sigue activo durante 10 días mientras Mercado Pago reintenta el cobro.'],
-  gracia_3: ['Tu período de gracia termina en 3 días', 'Actualizá el medio de pago en Mercado Pago para mantener el servicio activo.'],
-  pago_recuperado: ['Tu pago fue acreditado', 'Tu suscripción vuelve a estar activa.'],
-  gracia_vencida: ['Tu suscripción venció', 'Tus complejos quedan en modo lectura hasta crear una nueva suscripción.'],
-  anulada: ['Tu suscripción fue anulada', 'El acceso comercial terminó de inmediato y no se realizaron devoluciones proporcionales.'],
-  precio_30: ['Próximo cambio de precio', 'Tu próximo precio se aplicará dentro de 30 días.'],
-  precio_7: ['Cambio de precio en 7 días', 'Tu próximo precio se aplicará en la siguiente renovación.'],
-};
-
 const RESEND_NOT_CONFIGURED = 'El envío de emails aún no está configurado.';
 
 function isResendConfigured() {
@@ -590,11 +576,12 @@ function isResendConfigured() {
 
 async function deliverSubscriptionNotification(notification) {
   if (!isResendConfigured()) return { deferred: true };
-  const copy = EMAIL_COPY[notification.tipo] || ['Actualización de tu suscripción', 'Hay una novedad en tu suscripción de NEW MATCH.'];
+  const { rows } = await pool.query('SELECT * FROM suscripciones WHERE id=$1', [notification.suscripcion_id]);
+  const email = buildSubscriptionEmail(rows[0], notification.tipo, appUrl());
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': notification.dedupe_key },
-    body: JSON.stringify({ from: process.env.RESEND_FROM_EMAIL, to: [notification.destinatario], subject: copy[0], html: `<p>${copy[1]}</p><p><a href="${appUrl()}/planes">Gestionar suscripción</a></p>` }),
+    body: JSON.stringify({ from: process.env.RESEND_FROM_EMAIL, to: [notification.destinatario], ...email }),
   });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message || 'Resend no pudo enviar el aviso');
   return { delivered: true };
