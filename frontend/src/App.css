@@ -185,6 +185,8 @@ h1, h2, h3, p { margin: 0; }.welcome-block h1, .page-heading h1 { max-width: 620
 @media (max-width: 560px) { .availability-state { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; }.availability-state button { grid-column: 2; justify-self: start; } }
 .form-success { margin-top: 16px; color: var(--lime); font-size: 12px; }
 
+.text-reveal__unit { display: inline-block; will-change: transform; }
+
 /* Feedback stays with the action that produced it, including in compact mobile CTAs. */
 .action-feedback { width: 100%; margin: 10px 0 0; padding: 9px 11px; border: 1px solid rgba(158, 226, 79, .3); border-radius: 9px; background: rgba(158, 226, 79, .08); color: var(--lime); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .action-feedback--error { border-color: rgba(232, 121, 102, .42); background: rgba(232, 121, 102, .09); color: #f0a499; }
@@ -279,9 +281,9 @@ body { min-width: 0; overflow-x: clip; }
   .date-pill span { font-size: 11px; }
   .date-pill small { font-size: 8px; }
   .date-rail .calendar-picker { width: 48px; }
-  .calendar-picker__popover--sheet { right: auto; bottom: 0; left: 50%; width: min(100%, 560px); max-height: min(76dvh, 590px); padding: 12px 20px max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); border-radius: 24px 24px 0 0; box-shadow: 0 -18px 48px rgba(0, 0, 0, .45); }
+.calendar-picker__popover--sheet { right: 0; bottom: 0; left: 0; width: min(100%, 560px); max-height: min(76dvh, 590px); margin: 0 auto; padding: 12px 20px max(24px, env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; box-shadow: 0 -18px 48px rgba(0, 0, 0, .45); will-change: transform; }
   .calendar-picker__backdrop { position: absolute; display: block; inset: 0; width: 100%; height: 100%; padding: 0; pointer-events: auto; border: 0; background: rgba(0, 0, 0, .62); backdrop-filter: blur(3px); }
-  .calendar-picker__handle { display: block; width: 38px; height: 4px; margin: 0 auto 12px; border-radius: 999px; background: rgba(244, 247, 242, .28); }
+.calendar-picker__handle { display: block; width: 38px; height: 4px; margin: 0 auto 12px; border-radius: 999px; background: rgba(244, 247, 242, .28); cursor: grab; touch-action: none; }
   .calendar-picker__popover--sheet .calendar-picker__header { margin-bottom: 16px; }
   .calendar-picker__popover--sheet .calendar-picker__days button { width: 39px; height: 39px; font-size: 14px; }
   .time-picker__popover--sheet { right: auto; bottom: 0; left: 50%; width: min(100%, 560px); max-height: min(76dvh, 590px); padding: 12px 20px max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); border-radius: 24px 24px 0 0; box-shadow: 0 -18px 48px rgba(0, 0, 0, .45); }
@@ -1605,3 +1607,86 @@ body { min-width: 0; overflow-x: clip; }
 
 /* Keep cantina actions comfortably separated from the fields they submit. */
 .cantina-form > .inline-flex { margin-top: 6px; padding-inline: 18px; min-height: 44px; }
+
+/* BeUI motion tabs: a shared pill indicator keeps section switching tactile and legible. */
+.beui-tabs { width: 100%; min-width: 0; }
+.beui-tabs__list { position: relative; display: flex; align-items: stretch; gap: 5px; width: 100%; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: rgba(18, 49, 38, .28); }
+.beui-tabs__trigger-shell { position: relative; display: flex; flex: 1 1 0; min-width: 0; }
+.beui-tabs__trigger { position: relative; z-index: 1; display: inline-flex; width: 100%; min-height: 44px; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border: 0; border-radius: 10px; color: var(--muted); background: transparent; font: inherit; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer; outline: 0; transition: color .18s ease, opacity .18s ease; }
+.beui-tabs__trigger:hover { color: var(--warm); }
+.beui-tabs__trigger:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.beui-tabs__trigger:not(.is-active) { opacity: .78; }
+.beui-tabs__indicator { position: absolute; z-index: 0; inset: 0; border-radius: 10px; background: rgba(183, 238, 85, .14); box-shadow: inset 0 0 0 1px rgba(183, 238, 85, .28); }
+.beui-tabs__trigger.is-active { color: var(--lime); opacity: 1; }
+.beui-tabs__trigger > svg { flex: 0 0 auto; }
+.booking-tabs { margin: 0 0 18px; }
+.booking-tabs .beui-tabs__list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.booking-tabs .beui-tabs__trigger { min-height: 44px; }
+.booking-tabs .beui-tabs__trigger span { display: inline-grid; min-width: 19px; height: 19px; place-items: center; padding: 0 5px; border-radius: 999px; background: rgba(244, 247, 242, .08); color: var(--muted-2); font-size: 9px; }
+.booking-tabs .beui-tabs__trigger.is-active span { background: rgba(183, 238, 85, .18); color: var(--lime); }
+.cantina-tabs { margin-bottom: 21px; }
+.cantina-tabs .beui-tabs__list { gap: 7px; overflow-x: auto; padding: 4px; scrollbar-width: none; }
+.cantina-tabs .beui-tabs__list::-webkit-scrollbar { display: none; }
+.cantina-tabs .beui-tabs__trigger { min-height: 40px; padding-inline: 13px; }
+.cantina-tabs .beui-tabs__trigger.is-active { color: var(--lime); }
+.cantina-tabs .beui-tabs__indicator { border-radius: 9px; }
+
+/* DateRail keeps the calendar action beside the three quick date tabs. */
+.date-rail { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; overflow: visible; }
+.date-tabs .beui-tabs__list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0; border: 0; background: transparent; }
+.date-tabs .beui-tabs__trigger { flex: 1 1 auto; min-width: 0; min-height: 57px; justify-content: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(18, 49, 38, .6); text-align: left; }
+.date-tabs .beui-tabs__trigger span, .date-tabs .beui-tabs__trigger small { display: block; }
+.date-tabs .beui-tabs__trigger span { font-size: 12px; font-weight: 700; }
+.date-tabs .beui-tabs__trigger small { color: var(--muted-2); font-size: 9px; letter-spacing: .1em; }
+.date-tabs .beui-tabs__trigger.is-active { border-color: transparent; background: transparent; color: var(--warm); }
+.date-tabs .beui-tabs__trigger.is-active small { color: rgba(244, 247, 242, .72); }
+.date-tabs .beui-tabs__indicator { border-radius: 10px; background: var(--lime); box-shadow: none; }
+.date-tabs .beui-tabs__trigger-shell { overflow: hidden; border-radius: 10px; }
+.date-tabs .beui-tabs__trigger.is-active { color: var(--ink); }
+.date-tabs .beui-tabs__trigger.is-active small { color: rgba(11, 14, 12, .64); }
+.date-rail .calendar-picker { width: 54px; }
+.date-rail .calendar-picker__trigger { width: 100%; }
+
+@media (max-width: 700px) {
+  .date-rail { grid-template-columns: minmax(0, 1fr) 48px; gap: 7px; }
+  .date-tabs .beui-tabs__list { gap: 7px; }
+  .date-tabs .beui-tabs__trigger { min-height: 56px; justify-content: center; padding: 8px 5px; text-align: center; }
+  .date-tabs .beui-tabs__trigger span { font-size: 11px; }
+  .date-tabs .beui-tabs__trigger small { font-size: 8px; }
+  .date-rail .calendar-picker { width: 48px; }
+}
+
+@media (min-width: 781px) and (max-width: 1023px) {
+  .cantina-tabs .beui-tabs__list { flex-wrap: wrap; gap: 4px; overflow-x: visible; }
+  .cantina-tabs .beui-tabs__trigger { min-height: 42px; padding-inline: 7px; font-size: 10px; }
+  .cantina-tabs .beui-tabs__trigger svg { width: 15px; height: 15px; }
+}
+
+/* Mobile navigation uses the same BeUI tab treatment as the other section selectors. */
+@media (max-width: 780px) {
+  .bottom-nav { right: 50%; bottom: max(16px, env(safe-area-inset-bottom)); left: auto; display: flex; align-items: center; justify-content: space-between; gap: 4px; width: min(390px, calc(100% - 16px)); max-width: none; min-height: 0; padding: 7px; transform: translateX(50%); border: 1px solid rgba(244, 247, 242, .13); border-radius: 25px; background: rgba(15, 21, 17, .97); box-shadow: 0 12px 35px rgba(0, 0, 0, .32); }
+  .bottom-nav--hidden { transform: translateX(50%) translateY(calc(100% + 20px)); }
+  .bottom-nav .beui-expandable-tabs__tab { display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 58px; padding: 0; overflow: hidden; border: 1px solid transparent; border-radius: 18px; background: transparent; color: var(--muted); cursor: pointer; outline: 0; }
+  .bottom-nav .beui-expandable-tabs__tab:hover { color: var(--warm); }
+  .bottom-nav .beui-expandable-tabs__tab:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+  .bottom-nav .beui-expandable-tabs__tab.is-active { justify-content: flex-start; padding: 0 14px 0 11px; border-color: rgba(183, 238, 85, .48); background: rgba(183, 238, 85, .12); color: var(--lime); }
+  .bottom-nav .beui-expandable-tabs__icon { display: grid; flex: 0 0 20px; place-items: center; }
+  .bottom-nav .beui-expandable-tabs__label { display: inline-block; overflow: hidden; font-size: 11px; font-weight: 800; line-height: 1; white-space: nowrap; }
+  .bottom-nav .beui-expandable-tabs__tab.is-active svg { filter: drop-shadow(0 0 8px rgba(183, 238, 85, .24)); }
+}
+
+/* Cantina keeps every section visible on small screens, without a clipped strip. */
+@media (max-width: 780px) {
+  .cantina-tabs { display: block; overflow: visible; padding-bottom: 0; }
+  .cantina-tabs .beui-tabs__list { display: grid; grid-template-columns: 1.1fr .9fr 1.1fr .95fr 1.35fr; gap: 4px; overflow: visible; padding: 4px; }
+  .cantina-tabs .beui-tabs__trigger-shell { min-width: 0; }
+  .cantina-tabs .beui-tabs__trigger { flex-direction: column; min-width: 0; min-height: 54px; gap: 3px; padding: 5px 2px; font-size: 7px; }
+  .cantina-tabs .beui-tabs__trigger svg { width: 14px; height: 14px; }
+  .cantina-tabs .cantina-tab-label { min-width: 0; line-height: 1; white-space: nowrap; }
+}
+
+@media (min-width: 781px) and (max-width: 1023px) {
+  .cantina-tabs .beui-tabs__list { display: flex; flex-wrap: nowrap; gap: 7px; overflow-x: auto; padding: 4px; }
+  .cantina-tabs .beui-tabs__trigger-shell { flex: 0 0 auto; }
+  .cantina-tabs .beui-tabs__trigger { width: auto; min-width: max-content; padding-inline: 13px; }
+}

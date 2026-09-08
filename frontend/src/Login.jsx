@@ -18,8 +18,9 @@ import { getComplexTheme, getSportTheme, getUniqueSports } from './sportTheme';
 import { useSessionWithFallback } from './useSessionWithFallback';
 import { LoadingScreen } from './LoadingScreen';
 import { useToast } from './components/motion/animated-toast-stack';
-import { BeUIDock, BeUIDockItem } from './components/motion/dock';
 import { BeUISwitch } from './components/motion/switch';
+import { BeUIExpandableTabs, BeUITabs, BeUITabsList, BeUITabTrigger } from './components/motion/tabs';
+import { TextReveal } from './components/motion/text-reveal';
 
 function toDateValue(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -124,7 +125,7 @@ function BottomNav({ current, onChange }) {
     };
   }, []);
 
-  return <BeUIDock className={`bottom-nav${isVisible ? '' : ' bottom-nav--hidden'}`} label="Navegación principal" aria-hidden={!isVisible} onFocusCapture={() => setIsVisible(true)}>{items.map(([id, label, icon]) => <BeUIDockItem className="bottom-nav__item" active={current === id} key={id} label={label} onClick={() => { window.scrollTo({ top: 0, behavior: 'auto' }); onChange(id); }}><Icon name={icon} size={19} strokeWidth={current === id ? 2.2 : 1.6} /><span>{label}</span></BeUIDockItem>)}</BeUIDock>;
+  return <BeUIExpandableTabs value={current} onValueChange={(next) => { window.scrollTo({ top: 0, behavior: 'auto' }); onChange(next); }} className={`bottom-nav${isVisible ? '' : ' bottom-nav--hidden'}`} aria-label="Navegación principal" onFocusCapture={() => setIsVisible(true)} items={items.map(([id, label, icon]) => ({ id, label, icon: <Icon name={icon} size={20} strokeWidth={current === id ? 2.2 : 1.6} /> }))} />;
 }
 
 function PublicSidebar({ current, onChange, session, canManage }) {
@@ -145,14 +146,18 @@ function PublicSidebar({ current, onChange, session, canManage }) {
 }
 
 function PublicLayout({ current, onChange, session, canManage, showMobileNav = false, children }) {
-  return <div className={`public-layout${showMobileNav ? ' public-layout--with-mobile-nav' : ''}`}><PublicSidebar current={current} onChange={onChange} session={session} canManage={canManage} /><div className="public-layout__stage">{children}</div>{showMobileNav && <BottomNav key={current} current={current} onChange={onChange} />}</div>;
+  return <div className={`public-layout${showMobileNav ? ' public-layout--with-mobile-nav' : ''}`}><PublicSidebar current={current} onChange={onChange} session={session} canManage={canManage} /><div className="public-layout__stage">{children}</div>{showMobileNav && <BottomNav current={current} onChange={onChange} />}</div>;
 }
 
 function DateRail({ selected, onSelect }) {
   const isQuickDate = dateOptions.some((date) => date.value === selected);
   const customDay = isQuickDate ? '' : String(new Date(`${selected}T12:00:00`).getDate());
-  return <div className="date-rail" role="tablist" aria-label="Elegí una fecha">
-    {dateOptions.map((date) => <Button className={selected === date.value ? 'date-pill is-selected' : 'date-pill'} variant={selected === date.value ? 'chipActive' : 'chip'} key={date.value} type="button" role="tab" aria-selected={selected === date.value} onClick={() => onSelect(date.value)}><span>{date.label}</span><small>{date.sublabel}</small></Button>)}
+  return <div className="date-rail">
+    <BeUITabs value={selected} onValueChange={onSelect} variant="pill" className="date-tabs">
+      <BeUITabsList aria-label="Elegí una fecha">
+        {dateOptions.map((date) => <BeUITabTrigger className="date-pill" value={date.value} key={date.value}><span>{date.label}</span><small>{date.sublabel}</small></BeUITabTrigger>)}
+      </BeUITabsList>
+    </BeUITabs>
     <CalendarPicker compact className={isQuickDate ? '' : 'is-selected'} compactValue={customDay} label={isQuickDate ? 'Elegir otra fecha' : `Fecha elegida: ${selected}`} value={selected} onChange={onSelect} min={dateOptions[0].value} />
   </div>;
 }
@@ -190,7 +195,7 @@ function ComplexCard({ complex, onOpen, isSaved, onToggleSaved }) {
 function ExploreScreen({ complexes, query, setQuery, onOpen, saved, onToggleSaved, session, onLogin, canManage }) {
   const filtered = useMemo(() => complexes.filter((complex) => `${complex.name} ${complex.city} ${complex.province} ${complex.sports.join(' ')}`.toLowerCase().includes(query.toLowerCase())), [complexes, query]);
   const initials = session?.user?.name?.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'GO';
-  return <div className="app-shell"><header className="app-header"><Brand /><AdminEntry canManage={canManage} /><button className="avatar-button" type="button" aria-label="Abrir perfil" onClick={onLogin}>{initials}</button></header><main className="main-content"><section className="welcome-block"><h1>Tu próximo partido,<br /><em>a un toque.</em></h1><p>Encontrá un complejo, elegí la cancha y reservá tu horario.</p></section><div className="search-field"><Icon name="search" size={19} /><Input aria-label="Buscar complejos" placeholder="Buscar por complejo, ciudad o deporte" value={query} onChange={(event) => setQuery(event.target.value)} /><kbd>⌘ K</kbd></div><section className="courts-section courts-section--explore"><div className="section-heading"><div><span className="section-kicker">COMPLEJOS DISPONIBLES</span><h2>Elegí dónde jugar</h2></div><span className="result-count">{filtered.length} opciones</span></div>{filtered.length ? <div className="court-list complex-list">{filtered.map((complex) => <ComplexCard key={complex.id} complex={complex} onOpen={onOpen} isSaved={saved.includes(complex.id)} onToggleSaved={onToggleSaved} />)}</div> : <div className="empty-state"><PitchMark compact /><h3>No encontramos ese complejo</h3><p>Probá con otra ciudad, deporte o limpiá la búsqueda.</p><Button variant="secondary" size="sm" type="button" onClick={() => setQuery('')}>Limpiar búsqueda</Button></div>}</section></main></div>;
+  return <div className="app-shell"><header className="app-header"><Brand /><AdminEntry canManage={canManage} /><button className="avatar-button" type="button" aria-label="Abrir perfil" onClick={onLogin}>{initials}</button></header><main className="main-content"><section className="welcome-block"><h1><TextReveal text="Tu próximo partido," /><br /><TextReveal as="em" text="a un toque." delay={0.48} /></h1><TextReveal as="p" text="Encontrá un complejo, elegí la cancha y reservá tu horario." delay={0.92} stagger={0.05} blur={6} yOffset="20%" /></section><div className="search-field"><Icon name="search" size={19} /><Input aria-label="Buscar complejos" placeholder="Buscar por complejo, ciudad o deporte" value={query} onChange={(event) => setQuery(event.target.value)} /><kbd>⌘ K</kbd></div><section className="courts-section courts-section--explore"><div className="section-heading"><div><span className="section-kicker">COMPLEJOS DISPONIBLES</span><h2>Elegí dónde jugar</h2></div><span className="result-count">{filtered.length} opciones</span></div>{filtered.length ? <div className="court-list complex-list">{filtered.map((complex) => <ComplexCard key={complex.id} complex={complex} onOpen={onOpen} isSaved={saved.includes(complex.id)} onToggleSaved={onToggleSaved} />)}</div> : <div className="empty-state"><PitchMark compact /><h3>No encontramos ese complejo</h3><p>Probá con otra ciudad, deporte o limpiá la búsqueda.</p><Button variant="secondary" size="sm" type="button" onClick={() => setQuery('')}>Limpiar búsqueda</Button></div>}</section></main></div>;
 }
 
 function DetailScreen({ complex, court, onSelectCourt, date, setDate, time, setTime, onBack, onReserve, saved, onToggleSaved, availabilityStatus, onRetryAvailability, now }) {
@@ -240,10 +245,12 @@ function BookingsScreen({ bookings, onChange, session, onLogin, onCancel, notice
       <section className="page-heading"><span className="section-kicker">TUS RESERVAS</span><h1>Mis turnos</h1><p>Tu próximo partido siempre aparece primero.</p></section>
       {session ? <>
         {notice && <p className="form-success" role="status">{notice}</p>}
-        <div className="booking-tabs" role="tablist" aria-label="Filtrar turnos">
-          <button className={`booking-tab${activeTab === 'upcoming' ? ' is-active' : ''}`} id="upcoming-bookings-tab" type="button" role="tab" aria-selected={activeTab === 'upcoming'} aria-controls="bookings-panel" onClick={() => setActiveTab('upcoming')}>Próximos <span>{upcoming.length}</span></button>
-          <button className={`booking-tab${activeTab === 'history' ? ' is-active' : ''}`} id="booking-history-tab" type="button" role="tab" aria-selected={activeTab === 'history'} aria-controls="bookings-panel" onClick={() => setActiveTab('history')}>Historial <span>{history.length}</span></button>
-        </div>
+        <BeUITabs value={activeTab} onValueChange={setActiveTab} variant="pill" className="booking-tabs">
+          <BeUITabsList aria-label="Filtrar turnos">
+            <BeUITabTrigger value="upcoming" id="upcoming-bookings-tab" aria-controls="bookings-panel">Próximos <span>{upcoming.length}</span></BeUITabTrigger>
+            <BeUITabTrigger value="history" id="booking-history-tab" aria-controls="bookings-panel">Historial <span>{history.length}</span></BeUITabTrigger>
+          </BeUITabsList>
+        </BeUITabs>
         <div className="booking-list" id="bookings-panel" role="tabpanel" aria-labelledby={activeTab === 'upcoming' ? 'upcoming-bookings-tab' : 'booking-history-tab'}>
           {visibleBookings.map((booking) => {
             const cancelled = booking.status === 'Cancelado' || booking.status === 'Vencido';

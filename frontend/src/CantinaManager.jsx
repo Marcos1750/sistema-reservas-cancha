@@ -6,6 +6,7 @@ import { useConfirm } from './lib/confirmDialog';
 import { Icon } from './icons';
 import { useToast } from './components/motion/animated-toast-stack';
 import { BeUISelect } from './components/motion/select';
+import { BeUITabs, BeUITabsList, BeUITabTrigger } from './components/motion/tabs';
 
 const tabs = [
   ['overview', 'Resumen', 'home'],
@@ -224,9 +225,11 @@ export default function CantinaManager({ request, canManageTeam = false, isSuper
     </div>
     {error && <div className="cantina-feedback">{error}</div>}
     {activeComplex?.suspendido_suscripcion && <div className="cantina-feedback" role="status">Esta sede está suspendida: podés consultar la cantina, pero no registrar cambios.</div>}
-    <div className="cantina-tabs" role="tablist" aria-label="Secciones de cantina">
-      {tabs.filter(([id]) => id === 'overview' ? can('resultados') : id === 'sales' ? can('vender') : id === 'purchases' ? can('comprar') : id === 'products' ? can('stock') : can('resultados')).map(([id, label, icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}><Icon name={icon} size={17} />{label}</button>)}
-    </div>
+    <BeUITabs value={tab} onValueChange={setTab} variant="pill" className="cantina-tabs">
+      <BeUITabsList aria-label="Secciones de cantina">
+        {tabs.filter(([id]) => id === 'overview' ? can('resultados') : id === 'sales' ? can('vender') : id === 'purchases' ? can('comprar') : id === 'products' ? can('stock') : can('resultados')).map(([id, label, icon]) => <BeUITabTrigger key={id} value={id}><Icon name={icon} size={17} /><span className="cantina-tab-label">{label}</span></BeUITabTrigger>)}
+      </BeUITabsList>
+    </BeUITabs>
     {tab === 'overview' && can('resultados') && <>
       <div className="cantina-metrics">
         <article><small>Ventas de hoy</small><strong>{formatARS(summary?.ventas)}</strong><span>{summary?.cantidad_ventas || 0} operaciones</span></article>

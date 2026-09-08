@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useDragControls, useReducedMotion } from 'motion/react';
 import { Icon } from './icons';
 
 const weekDays = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'];
@@ -29,13 +30,18 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const popupRef = useRef(null);
+  const dragControls = useDragControls();
+  const reduce = useReducedMotion();
   const dialogId = useId();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, flipped: false });
   const [month, setMonth] = useState(() => new Date(dateFromValue(value).getFullYear(), dateFromValue(value).getMonth(), 1));
   const selected = value || '';
   const minimum = min || '';
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -73,9 +79,22 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
 
   useEffect(() => {
     if (!open || !isMobile) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = previousOverflow; };
+    const body = document.body;
+    const scrollY = window.scrollY;
+    const previous = { position: body.style.position, top: body.style.top, left: body.style.left, right: body.style.right, overflow: body.style.overflow };
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.overflow = 'hidden';
+    return () => {
+      body.style.position = previous.position;
+      body.style.top = previous.top;
+      body.style.left = previous.left;
+      body.style.right = previous.right;
+      body.style.overflow = previous.overflow;
+      window.scrollTo(0, scrollY);
+    };
   }, [open, isMobile]);
 
   const days = useMemo(() => {
@@ -100,10 +119,8 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
     setOpen((current) => !current);
   };
 
-  const calendar = open ? createPortal(<div className="calendar-picker__layer">
-    {isMobile && <button className="calendar-picker__backdrop" type="button" aria-label="Cerrar calendario" onClick={() => setOpen(false)} />}
-    <div ref={popupRef} id={dialogId} className={`calendar-picker__popover${isMobile ? ' calendar-picker__popover--sheet' : ''}${position.flipped ? ' is-flipped' : ''}`} style={isMobile ? undefined : { top: position.top, left: position.left }} role="dialog" aria-modal={isMobile || undefined} aria-label={label} tabIndex="-1">
-      {isMobile && <div className="calendar-picker__handle" />}
+  const calendarContent = <>
+      {isMobile && <div className="calendar-picker__handle" onPointerDown={(event) => dragControls.start(event)} />}
       <div className="calendar-picker__header">
         <button type="button" onClick={() => shiftMonth(-1)} aria-label="Mes anterior"><Icon name="back" size={16} /></button>
         <strong>{monthLabel(month)}</strong>
@@ -117,8 +134,12 @@ export function CalendarPicker({ value, onChange, min, label = 'Elegir fecha', c
         const today = day === isoDate(new Date());
         return <button key={day} type="button" disabled={disabled} onClick={() => choose(date)} className={`${day === selected ? 'is-selected ' : ''}${today ? 'is-today' : ''}`}>{date.getDate()}</button>;
       })}</div>
-    </div>
-  </div>, document.body) : null;
+    </>;
+
+  const calendar = mounted ? createPortal(<AnimatePresence>{open && <div className="calendar-picker__layer">
+    {isMobile && <motion.button className="calendar-picker__backdrop" type="button" aria-label="Cerrar calendario" onClick={() => setOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0.18 : 0.5, ease: [0.16, 1, 0.3, 1] }} />}
+    {isMobile ? <motion.div ref={popupRef} id={dialogId} className="calendar-picker__popover calendar-picker__popover--sheet" role="dialog" aria-modal="true" aria-label={label} tabIndex="-1" drag="y" dragControls={dragControls} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0.02, bottom: 0.4 }} dragMomentum={false} onDragEnd={(_, info) => { if (info.velocity.y > 600 || info.offset.y > 120) setOpen(false); }} initial={reduce ? { y: 0, opacity: 0 } : { y: '100%' }} animate={reduce ? { y: 0, opacity: 1 } : { y: 0 }} exit={reduce ? { y: 0, opacity: 0 } : { y: '100%' }} transition={reduce ? { duration: 0.18, ease: [0.16, 1, 0.3, 1] } : { duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>{calendarContent}</motion.div> : <div ref={popupRef} id={dialogId} className={`calendar-picker__popover${position.flipped ? ' is-flipped' : ''}`} style={{ top: position.top, left: position.left }} role="dialog" aria-label={label} tabIndex="-1">{calendarContent}</div>}
+  </div>}</AnimatePresence>, document.body) : null;
 
   return <div ref={rootRef} className={`calendar-picker${compact ? ' calendar-picker--compact' : ''} ${className}`}>
     <button ref={triggerRef} className="calendar-picker__trigger" type="button" onClick={toggle} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? dialogId : undefined} aria-label={label}>

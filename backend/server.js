@@ -1198,27 +1198,31 @@ app.get('/api/canchas/:id/disponibilidad', async (req, res, next) => {
   const fecha = cleanText(req.query.fecha, 10);
   if (!validDate(fecha)) return res.status(400).json({ error: 'Fecha inválida' });
   try {
-    await expirePendingReservations();
-    const blocked = await pool.query('SELECT 1 FROM bloqueos WHERE fecha = $1 AND (cancha_id = $2 OR cancha_id IS NULL)', [fecha, req.params.id]);
-    if (blocked.rowCount) return res.json({ fecha, blocked: true, slots: [] });
     const { rows } = await pool.query(
-      `SELECT h.hora_inicio, h.hora_fin,
+      `WITH requested_block AS (
+         SELECT EXISTS(
+           SELECT 1 FROM bloqueos WHERE fecha = $2 AND (cancha_id = $1 OR cancha_id IS NULL)
+         ) AS blocked
+       )
+       SELECT requested_block.blocked, h.hora_inicio, h.hora_fin,
               COALESCE(e.disponible, h.activo) AS disponible,
               COALESCE(e.precio_ars, h.precio_ars) AS precio_ars,
               EXISTS (SELECT 1 FROM reservas r WHERE r.cancha_id = h.cancha_id
                 AND r.fecha = $2 AND r.hora = to_char(h.hora_inicio, 'HH24:MI') || '-' || to_char(h.hora_fin, 'HH24:MI')
                 AND (r.estado = 'confirmada' OR (r.estado = 'pendiente_pago' AND r.expira_pago_at > NOW()))) AS reservado
-         FROM horarios_cancha h
+         FROM requested_block
+         LEFT JOIN horarios_cancha h ON NOT requested_block.blocked
+          AND h.cancha_id = $1 AND h.dia_semana = EXTRACT(DOW FROM $2::date)::int
          LEFT JOIN excepciones_cancha e ON e.cancha_id = h.cancha_id AND e.fecha = $2
           AND e.hora_inicio = h.hora_inicio AND e.hora_fin = h.hora_fin
-        WHERE h.cancha_id = $1 AND h.dia_semana = EXTRACT(DOW FROM $2::date)::int
-        ORDER BY h.hora_inicio`,
+        ORDER BY h.hora_inicio NULLS LAST`,
       [req.params.id, fecha],
     );
+    if (rows[0]?.blocked) return res.json({ fecha, blocked: true, slots: [] });
     res.json({
       fecha,
       blocked: false,
-      slots: rows.map((row) => ({
+      slots: rows.filter((row) => row.hora_inicio).map((row) => ({
         hora: `${String(row.hora_inicio).slice(0, 5)}-${String(row.hora_fin).slice(0, 5)}`,
         precio: row.precio_ars,
         disponible: row.disponible && !row.reservado,
