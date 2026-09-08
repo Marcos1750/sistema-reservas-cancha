@@ -1168,14 +1168,14 @@ body { min-width: 0; overflow-x: clip; }
     width: 44px;
     height: 44px;
     padding: 0;
-    border: 1px solid var(--m3-outline);
-    border-radius: 13px;
-    background: rgba(183, 238, 85, .07);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     color: var(--lime);
     cursor: pointer;
   }
 
-  .admin-mobile-bar__menu:hover { background: rgba(183, 238, 85, .14); }
+  .admin-mobile-bar__menu:hover { background: transparent; }
   .admin-mobile-bar__menu:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
 }
 
@@ -1689,4 +1689,18 @@ body { min-width: 0; overflow-x: clip; }
   .cantina-tabs .beui-tabs__list { display: flex; flex-wrap: nowrap; gap: 7px; overflow-x: auto; padding: 4px; }
   .cantina-tabs .beui-tabs__trigger-shell { flex: 0 0 auto; }
   .cantina-tabs .beui-tabs__trigger { width: auto; min-width: max-content; padding-inline: 13px; }
+}
+
+/* Published layout preserved: only scale the Cantina controls and restore the bookings rail to full width. */
+.booking-tabs { display: block; }
+.booking-tabs .beui-tabs__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cantina-tabs .beui-tabs__list { gap: 9px; padding: 6px; }
+.cantina-tabs .beui-tabs__trigger { min-height: 52px; padding-inline: 18px; font-size: 12px; }
+
+@media (max-width: 780px) {
+  .cantina-tabs .beui-tabs__list { display: grid; grid-template-columns: 1.1fr .9fr 1.1fr .95fr 1.35fr; gap: 6px; overflow: visible; padding: 6px; }
+  .cantina-tabs .beui-tabs__trigger-shell { min-width: 0; }
+  .cantina-tabs .beui-tabs__trigger { flex-direction: column; min-width: 0; min-height: 66px; gap: 5px; padding: 8px 3px; font-size: 9px; }
+  .cantina-tabs .beui-tabs__trigger svg { width: 18px; height: 18px; }
+  .cantina-tabs .cantina-tab-label { line-height: 1; white-space: nowrap; }
 }
