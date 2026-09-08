@@ -1693,7 +1693,7 @@ body { min-width: 0; overflow-x: clip; }
 
 /* Published layout preserved: only scale the Cantina controls and restore the bookings rail to full width. */
 .booking-tabs { display: block; }
-.booking-tabs .beui-tabs__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.booking-tabs .beui-tabs__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0; border: 0; background: transparent; }
 .cantina-tabs .beui-tabs__list { gap: 9px; padding: 6px; }
 .cantina-tabs .beui-tabs__trigger { min-height: 52px; padding-inline: 18px; font-size: 12px; }
 
