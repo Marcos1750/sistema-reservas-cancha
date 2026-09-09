@@ -1656,6 +1656,16 @@ body { min-width: 0; overflow-x: clip; }
   .date-rail .calendar-picker { width: 48px; }
 }
 
+/* Date choices keep a readable touch width instead of collapsing in narrow desktop panels. */
+.date-tabs { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.date-tabs::-webkit-scrollbar { display: none; }
+.date-tabs .beui-tabs__list { min-width: 282px; }
+
+@media (min-width: 701px) {
+  .date-tabs .beui-tabs__list { min-width: 330px; }
+  .date-tabs .beui-tabs__trigger { min-height: 60px; padding-inline: 15px; }
+}
+
 @media (min-width: 781px) and (max-width: 1023px) {
   .cantina-tabs .beui-tabs__list { flex-wrap: wrap; gap: 4px; overflow-x: visible; }
   .cantina-tabs .beui-tabs__trigger { min-height: 42px; padding-inline: 7px; font-size: 10px; }
