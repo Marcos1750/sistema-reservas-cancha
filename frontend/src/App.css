@@ -1669,6 +1669,11 @@ body { min-width: 0; overflow-x: clip; }
   .public-layout .date-tabs .beui-tabs__list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: 100%; }
 }
 
+/* The bookings toggle is a compact control, not a page-wide status bar. */
+@media (min-width: 1024px) {
+  .public-layout .booking-tabs { width: min(100%, 460px); max-width: 460px; }
+}
+
 @media (min-width: 781px) and (max-width: 1023px) {
   .cantina-tabs .beui-tabs__list { flex-wrap: wrap; gap: 4px; overflow-x: visible; }
   .cantina-tabs .beui-tabs__trigger { min-height: 42px; padding-inline: 7px; font-size: 10px; }
