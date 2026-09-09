@@ -931,6 +931,7 @@ body { min-width: 0; overflow-x: clip; }
   .public-layout .booking-tabs { max-width: 1120px; margin-bottom: 24px; padding: 6px; border-radius: 14px; }
   .public-layout .booking-tab { min-height: 56px; font-size: 15px; }
   .public-layout .booking-tab span { min-width: 23px; height: 23px; font-size: 11px; }
+  .public-layout .booking-empty { max-width: 1120px; }
   .public-layout .booking-list { max-width: 1120px; gap: 16px; }
   .public-layout .booking-card { grid-template-columns: 76px minmax(0, 1fr); gap: 21px; min-height: 174px; padding: 23px 25px; border-radius: 18px; }
   .public-layout .booking-card__date { width: 68px; height: 78px; border-radius: 12px; }
