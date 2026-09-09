@@ -1663,6 +1663,12 @@ body { min-width: 0; overflow-x: clip; }
   .date-tabs .beui-tabs__list { width: 100%; min-width: 0; }
 }
 
+/* Desktop keeps the original three 94px date cards plus the 62px calendar action. */
+@media (min-width: 701px) {
+  .public-layout .date-rail { grid-template-columns: minmax(0, 302px) 62px; width: min(100%, 374px); }
+  .public-layout .date-tabs .beui-tabs__list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: 100%; }
+}
+
 @media (min-width: 781px) and (max-width: 1023px) {
   .cantina-tabs .beui-tabs__list { flex-wrap: wrap; gap: 4px; overflow-x: visible; }
   .cantina-tabs .beui-tabs__trigger { min-height: 42px; padding-inline: 7px; font-size: 10px; }
