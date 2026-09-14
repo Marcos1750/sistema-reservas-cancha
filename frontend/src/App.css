@@ -1718,3 +1718,28 @@ body { min-width: 0; overflow-x: clip; }
   .cantina-tabs .beui-tabs__trigger svg { width: 18px; height: 18px; }
   .cantina-tabs .cantina-tab-label { line-height: 1; white-space: nowrap; }
 }
+
+/* La fecha acompaña al horario con una jerarquía legible en Resumen y Calendario. */
+@media (min-width: 781px) {
+  .admin-booking-time small {
+    margin-top: 4px;
+    color: var(--lime);
+    font-size: 16px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (max-width: 780px) {
+  .admin-booking-time small {
+    margin-top: 6px;
+    color: var(--lime);
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+}
