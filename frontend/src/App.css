@@ -1668,6 +1668,17 @@ body { min-width: 0; overflow-x: clip; }
 @media (min-width: 701px) {
   .public-layout .date-rail { grid-template-columns: minmax(0, 302px) 62px; width: min(100%, 374px); }
   .public-layout .date-tabs .beui-tabs__list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: 100%; }
+  .public-layout .date-tabs .beui-tabs__trigger {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+  }
+  .public-layout .date-tabs .beui-tabs__trigger span,
+  .public-layout .date-tabs .beui-tabs__trigger small {
+    line-height: 1.1;
+    white-space: nowrap;
+  }
 }
 
 @media (min-width: 781px) and (max-width: 1023px) {
