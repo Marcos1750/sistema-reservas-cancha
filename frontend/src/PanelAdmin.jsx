@@ -14,6 +14,7 @@ import {
   getAdminOverviewMetrics,
   isBookingUpcoming,
 } from "./lib/adminOverview";
+import { applyBulkSlotPrice } from "./lib/schedulePricing";
 import { getComplexTheme, getSportTheme } from "./sportTheme";
 import { useSessionWithFallback } from "./useSessionWithFallback";
 import { LoadingScreen } from "./LoadingScreen";
@@ -120,7 +121,7 @@ function GoogleAccess({ onLogin, onDemo, message }) {
   );
 }
 
-function AdminTable({ bookings, onCancel, onHideHistory, mode = "upcoming", now = new Date(), emptyTitle, emptyDescription }) {
+function AdminTable({ bookings, onCancel, onHideHistory, onMarkCompleted, mode = "upcoming", now = new Date(), emptyTitle, emptyDescription }) {
   if (!bookings.length)
     return (
       <div className="admin-empty">
@@ -151,6 +152,7 @@ function AdminTable({ bookings, onCancel, onHideHistory, mode = "upcoming", now 
           (booking.estado === "confirmada" || booking.estado === "pendiente_pago");
         const completed = mode === "history" && booking.estado === "confirmada" && !isBookingUpcoming(booking, now);
         const displayStatus = completed ? "cumplido" : booking.estado;
+        const canMarkCompleted = mode === "history" && booking.estado === "cancelada" && !isBookingUpcoming(booking, now) && onMarkCompleted;
         const canHide = mode === "history" && onHideHistory && (
           booking.estado === "cancelada" ||
           booking.estado === "expirada" ||
@@ -181,15 +183,31 @@ function AdminTable({ bookings, onCancel, onHideHistory, mode = "upcoming", now 
               <span />
               {labels[displayStatus] || booking.estado}
             </span>
-            {canHide ? (
-              <button
-                className="admin-delete admin-history-remove"
-                type="button"
-                onClick={() => onHideHistory(booking.id)}
-                aria-label={`Quitar del historial el turno de ${booking.nombre}`}
-              >
-                <Icon name="plus" size={17} />
-              </button>
+            {(canHide || canMarkCompleted) ? (
+              <div className="admin-table__actions">
+                {canMarkCompleted && (
+                  <button
+                    className="admin-delete admin-history-complete"
+                    type="button"
+                    onClick={() => onMarkCompleted(booking.id)}
+                    aria-label={`Marcar como cumplido el turno de ${booking.nombre}`}
+                    title="Marcar como cumplido"
+                  >
+                    <Icon name="check" size={16} />
+                  </button>
+                )}
+                {canHide && (
+                  <button
+                    className="admin-delete admin-history-remove"
+                    type="button"
+                    onClick={() => onHideHistory(booking.id)}
+                    aria-label={`Quitar del historial el turno de ${booking.nombre}`}
+                    title="Quitar del historial"
+                  >
+                    <Icon name="plus" size={17} />
+                  </button>
+                )}
+              </div>
             ) : cancellable && (
               <button
                 className="admin-delete"
@@ -258,6 +276,8 @@ function SlotEditor({ court, request, readOnly = false }) {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
   const [messageArea, setMessageArea] = useState("schedule");
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [bulkPriceSaving, setBulkPriceSaving] = useState(false);
   const [activeDay, setActiveDay] = useState(null);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [quickSchedule, setQuickSchedule] = useState({
@@ -388,6 +408,34 @@ function SlotEditor({ court, request, readOnly = false }) {
       showMessage(error.message, "error", "schedule");
     }
   };
+  const saveBulkPrice = async (event) => {
+    event.preventDefault();
+    const result = applyBulkSlotPrice(slots, bulkPrice);
+
+    if (result.error) {
+      showMessage(result.error, "error", "bulk-price");
+      return;
+    }
+
+    setBulkPriceSaving(true);
+    try {
+      await request(`/api/admin/canchas/${court.id}/horarios`, {
+        method: "PUT",
+        body: JSON.stringify({ slots: result.slots }),
+      });
+      setSlots(result.slots);
+      setBulkPrice(String(result.price));
+      showMessage(
+        `Se actualizó el precio de ${result.slots.length} ${result.slots.length === 1 ? "horario" : "horarios"}.`,
+        "success",
+        "bulk-price",
+      );
+    } catch (error) {
+      showMessage(error.message, "error", "bulk-price");
+    } finally {
+      setBulkPriceSaving(false);
+    }
+  };
   const saveException = async (event) => {
     event.preventDefault();
     try {
@@ -462,6 +510,46 @@ function SlotEditor({ court, request, readOnly = false }) {
             <ActionFeedback message={messageArea === "schedule" ? message : ""} tone={messageType} />
           </div>
         </div>
+        <form
+          className="admin-bulk-price"
+          onSubmit={saveBulkPrice}
+          aria-busy={bulkPriceSaving}
+          noValidate
+        >
+          <div className="admin-bulk-price__copy">
+            <h3>Precio general</h3>
+            <p id={`court-${court.id}-bulk-price-help`}>
+              Aplicalo a los {slots.length} horarios habituales. También guarda
+              cualquier otro cambio pendiente en la grilla.
+            </p>
+          </div>
+          <label className="admin-bulk-price__field">
+            Nuevo precio por turno
+            <Input
+              type="number"
+              min="0"
+              step="1"
+              inputMode="numeric"
+              placeholder="Ej. 30000"
+              value={bulkPrice}
+              onChange={(event) => setBulkPrice(event.target.value)}
+              aria-describedby={`court-${court.id}-bulk-price-help`}
+            />
+          </label>
+          <Button
+            type="submit"
+            disabled={bulkPriceSaving || slots.length === 0}
+          >
+            {bulkPriceSaving
+              ? "Actualizando…"
+              : `Actualizar ${slots.length} ${slots.length === 1 ? "horario" : "horarios"}`}
+          </Button>
+          <ActionFeedback
+            className="admin-bulk-price__feedback"
+            message={messageArea === "bulk-price" ? message : ""}
+            tone={messageType}
+          />
+        </form>
         <section
           className="quick-schedule"
           aria-labelledby="quick-schedule-title"
@@ -2682,6 +2770,28 @@ export default function PanelAdmin() {
       });
     }
   };
+  const markBookingCompleted = async (id) => {
+    if (
+      !(await confirm({
+        title: "¿Marcar este turno como cumplido?",
+        description: "Usalo sólo si el turno se realizó. Se conservará la referencia de la cancelación anterior.",
+        confirmText: "Marcar como cumplido",
+      }))
+    )
+      return;
+    setError("");
+    try {
+      await request(`/api/admin/reservas/${id}/marcar-cumplida`, { method: "POST" });
+      await reload();
+    } catch (requestError) {
+      setError(requestError.message);
+      alert({
+        title: "No se pudo actualizar el turno",
+        description: requestError.message,
+        tone: "danger",
+      });
+    }
+  };
   if (demo ? profile === null : isPending || (session?.user && profile === null))
     return <LoadingScreen message="Preparando el panel…" />;
   if (!demo && !session?.user)
@@ -2938,7 +3048,7 @@ export default function PanelAdmin() {
                 id="admin-calendar-panel-history"
                 aria-labelledby="admin-calendar-tab-history"
               >
-                <AdminTable bookings={historyBookings} onHideHistory={hideHistoryBooking} mode="history" now={agendaNow} />
+                <AdminTable bookings={historyBookings} onHideHistory={hideHistoryBooking} onMarkCompleted={markBookingCompleted} mode="history" now={agendaNow} />
               </section>
             )}
           </section>

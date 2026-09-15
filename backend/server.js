@@ -216,6 +216,12 @@ function canHideReservationFromHistory(reservation, now = new Date()) {
   return Boolean(endAt && endAt.getTime() <= now.getTime());
 }
 
+function canMarkReservationCompleted(reservation, now = new Date()) {
+  if (reservation?.estado !== 'cancelada') return false;
+  const endAt = reservationEndAt(reservation.fecha, reservation.hora);
+  return Boolean(endAt && endAt.getTime() <= now.getTime());
+}
+
 function paymentSetupError(message) {
   const error = new Error(message);
   error.status = 503;
@@ -2479,6 +2485,47 @@ app.post('/api/admin/reservas/:id/ocultar-historial', requireAnyAdmin, requireSu
   }
 });
 
+app.post('/api/admin/reservas/:id/marcar-cumplida', requireAnyAdmin, requireSubscriptionWrite, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const params = [req.params.id];
+    const accessFilter = req.user.role === 'superadmin' ? '' : ' AND COALESCE(co.owner_user_id, r.complejo_owner_user_id) = $2';
+    if (req.user.role !== 'superadmin') params.push(managedOwnerId(req));
+    const reservationResult = await client.query(
+      `SELECT r.id, r.estado, r.fecha::text, r.hora
+         FROM reservas r
+         LEFT JOIN canchas c ON c.id = r.cancha_id
+         LEFT JOIN complejos co ON co.id = c.complejo_id
+        WHERE r.id = $1${accessFilter} FOR UPDATE OF r`,
+      params,
+    );
+    const reservation = reservationResult.rows[0];
+    if (!reservation) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'La reserva no existe o no tenés permiso para administrarla' });
+    }
+    if (!canMarkReservationCompleted(reservation)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Solo se pueden marcar como cumplidos los turnos cancelados que ya finalizaron' });
+    }
+    await client.query(
+      `UPDATE reservas
+          SET estado='confirmada',
+              cancel_reason=concat_ws(' · ', NULLIF(cancel_reason, ''), 'Marcada como cumplida por administración')
+        WHERE id=$1`,
+      [reservation.id],
+    );
+    await client.query('COMMIT');
+    res.json({ id: reservation.id, estado: 'confirmada', mensaje: 'Turno marcado como cumplido' });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
 app.delete('/api/admin/reservas/:id', requireAnyAdmin, requireSubscriptionWrite, async (req, res, next) => {
   const client = await pool.connect();
   try {
@@ -2704,4 +2751,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { app, applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, delegatedReservationOwnerId, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };
+export { app, applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, canMarkReservationCompleted, delegatedReservationOwnerId, hasCheckoutUrl, prepare, requiresReservationPayment, start, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots };

@@ -1534,6 +1534,31 @@ body { min-width: 0; overflow-x: clip; }
 .admin-court-operations .admin-section-heading { align-items: flex-start; }
 .admin-court-operations .admin-section-heading p { max-width: 620px; margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 
+.admin-bulk-price {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(170px, 220px) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.admin-bulk-price__copy { align-self: center; }
+.admin-bulk-price__copy h3 { margin: 0; color: var(--warm); font-size: 15px; letter-spacing: -.03em; }
+.admin-bulk-price__copy p { max-width: 520px; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.admin-bulk-price__field { display: grid; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.admin-bulk-price__field input,
+.admin-bulk-price > button { min-height: 42px; }
+.admin-bulk-price > button { white-space: nowrap; }
+.admin-bulk-price__feedback { grid-column: 2 / -1; margin: 0; }
+
+@media (max-width: 780px) {
+  .admin-bulk-price { grid-template-columns: 1fr; align-items: stretch; }
+  .admin-bulk-price > button { width: 100%; }
+  .admin-bulk-price__feedback { grid-column: 1; }
+}
+
 .admin-day-list { display: grid; gap: 8px; margin: 18px 0 22px; }
 .admin-day { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: rgba(18, 49, 38, .22); }
 .admin-day.is-open { border-color: rgba(183, 238, 85, .25); }
@@ -1728,6 +1753,21 @@ body { min-width: 0; overflow-x: clip; }
   .cantina-tabs .beui-tabs__trigger { flex-direction: column; min-width: 0; min-height: 66px; gap: 5px; padding: 8px 3px; font-size: 9px; }
   .cantina-tabs .beui-tabs__trigger svg { width: 18px; height: 18px; }
   .cantina-tabs .cantina-tab-label { line-height: 1; white-space: nowrap; }
+}
+
+/* En el historial, la corrección de estado y ocultar el registro comparten un espacio fijo. */
+@media (min-width: 781px) {
+  .admin-table__head,
+  .admin-table__row { grid-template-columns: .65fr 1.35fr 1.25fr .8fr 64px; }
+}
+
+.admin-table__actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.admin-history-complete { transform: none; color: var(--lime); }
+.admin-history-complete:hover { color: var(--warm); border-color: rgba(183, 238, 85, .52); }
+
+@media (max-width: 780px) {
+  .admin-table__actions { grid-column: 3; grid-row: 1; align-self: center; }
+  .admin-table__actions .admin-delete { width: 36px; height: 36px; }
 }
 
 /* La fecha acompaña al horario con una jerarquía legible en Resumen y Calendario. */

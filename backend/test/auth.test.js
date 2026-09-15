@@ -8,7 +8,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
 
 const { ROLES, auth, requireAuth } = await import('../auth.js');
-const { applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, delegatedReservationOwnerId, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
+const { applyProviderPayment, canCustomerCancel, canCustomerReleaseReservation, canHideReservationFromHistory, canMarkReservationCompleted, delegatedReservationOwnerId, hasCheckoutUrl, requiresReservationPayment, validateComplex, validateCourt, validateProfile, validateReservation, validateScheduleSlots } = await import('../server.js');
 
 function response() {
   return {
@@ -238,6 +238,13 @@ test('solo permite ocultar del historial turnos finalizados o estados cerrados',
   assert.equal(canHideReservationFromHistory({ estado: 'confirmada', fecha: '2026-08-20', hora: '18:00-19:00' }, now), false);
   assert.equal(canHideReservationFromHistory({ estado: 'cancelada', fecha: '2026-08-20', hora: '18:00-19:00' }, now), true);
   assert.equal(canHideReservationFromHistory({ estado: 'pendiente_pago', fecha: '2026-08-20', hora: '14:00-15:00' }, now), false);
+});
+
+test('solo permite corregir como cumplido una cancelación que ya terminó', () => {
+  const now = new Date('2026-08-20T18:00:00-03:00');
+  assert.equal(canMarkReservationCompleted({ estado: 'cancelada', fecha: '2026-08-20', hora: '14:00-15:00' }, now), true);
+  assert.equal(canMarkReservationCompleted({ estado: 'cancelada', fecha: '2026-08-20', hora: '18:00-19:00' }, now), false);
+  assert.equal(canMarkReservationCompleted({ estado: 'confirmada', fecha: '2026-08-20', hora: '14:00-15:00' }, now), false);
 });
 
 test('sólo acepta enlaces HTTPS de checkout', () => {
