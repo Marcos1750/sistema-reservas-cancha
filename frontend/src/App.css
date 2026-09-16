@@ -336,7 +336,7 @@ body { min-width: 0; overflow-x: clip; }
 .booking-summary__court { display: block; margin-top: 5px; color: var(--lime); font-size: 11px; }
 
 .admin-main { max-width: none; }
-.admin-topbar, .admin-stats, .admin-bookings-section, .admin-footer { max-width: 1180px; }
+.admin-topbar, .admin-stats, .admin-bookings-section, .admin-footer, .admin-page-error { max-width: 1180px; }
 .admin-stats { grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr)); }
 .admin-stat { min-width: 0; overflow: hidden; }
 .admin-stat strong { max-width: 100%; overflow-wrap: anywhere; }
@@ -468,6 +468,19 @@ body { min-width: 0; overflow-x: clip; }
 .admin-calendar-panel { min-width: 0; margin-top: 20px; }
 .admin-calendar-load-more { display: flex; justify-content: center; margin-top: 18px; }
 .admin-calendar-load-more__button { margin-top: 0; }
+.admin-page-error {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 22px auto 0;
+  padding: 13px 15px;
+  border: 1px solid rgba(232, 121, 102, .42);
+  border-radius: 11px;
+  background: rgba(232, 121, 102, .09);
+  color: #f0a499;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .admin-overview-more { align-self: end; white-space: nowrap; }
 .admin-status--cumplido { color: var(--muted-2); }
 .admin-status--cumplido span { background: var(--muted-2); }
@@ -753,7 +766,7 @@ body { min-width: 0; overflow-x: clip; }
   .admin-sidebar__label { margin-top: 78px; font-size: 10px; }
   .admin-nav-item { min-height: 50px; padding-inline: 14px; font-size: 14px; }
   .admin-main { width: calc(100% - 284px); margin-left: 284px; padding: 56px clamp(42px, 5vw, 92px) 54px; }
-  .admin-topbar, .admin-stats, .admin-bookings-section, .admin-footer { max-width: 1320px; }
+  .admin-topbar, .admin-stats, .admin-bookings-section, .admin-footer, .admin-page-error { max-width: 1320px; }
   .admin-topbar h1 { font-size: clamp(40px, 4vw, 54px); }
   .admin-stats { gap: 16px; margin-top: 54px; margin-bottom: 66px; }
   .admin-stat > small { font-size: 12px; }
@@ -954,7 +967,7 @@ body { min-width: 0; overflow-x: clip; }
   .admin-sidebar__label { margin-top: 86px; font-size: 11px; }
   .admin-nav-item { min-height: 58px; padding-inline: 16px; font-size: 16px; }
   .admin-main { width: calc(100% - 320px); margin-left: 320px; padding: 62px clamp(54px, 6vw, 120px) 60px; }
-  .admin-topbar, .admin-stats, .admin-bookings-section, .admin-footer { max-width: 1500px; }
+  .admin-topbar, .admin-stats, .admin-bookings-section, .admin-footer, .admin-page-error { max-width: 1500px; }
   .admin-table__head { min-height: 54px; font-size: 11px; }
   .admin-table__row { min-height: 96px; }
   .admin-table__row strong, .admin-booking-time strong { font-size: 15px; }

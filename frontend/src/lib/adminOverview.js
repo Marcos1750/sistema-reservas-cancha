@@ -59,6 +59,11 @@ export function isBookingUpcoming(booking, now = new Date()) {
   return Boolean(endAt && endAt.getTime() > now.getTime());
 }
 
+export function isBookingPast(booking, now = new Date()) {
+  const endAt = getBookingEndAt(booking);
+  return Boolean(endAt && endAt.getTime() <= now.getTime());
+}
+
 function historyCutoffDate(now) {
   const cutoff = new Date(`${getBuenosAiresDate(now)}T12:00:00Z`);
   cutoff.setUTCDate(cutoff.getUTCDate() - ADMIN_HISTORY_DAYS);
@@ -75,6 +80,6 @@ export function getAdminBookingSections(bookings, now = new Date()) {
   const cutoffDate = historyCutoffDate(now);
   const visibleBookings = bookings.filter((booking) => !booking.historial_oculto_at);
   const upcoming = visibleBookings.filter((booking) => isBookingUpcoming(booking, now)).sort((a, b) => compareBookings(a, b, 1));
-  const history = visibleBookings.filter((booking) => !isBookingUpcoming(booking, now) && booking.fecha > cutoffDate).sort((a, b) => compareBookings(a, b, -1));
+  const history = visibleBookings.filter((booking) => isBookingPast(booking, now) && booking.fecha > cutoffDate).sort((a, b) => compareBookings(a, b, -1));
   return { upcoming, history, all: [...history, ...upcoming] };
 }

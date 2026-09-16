@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getAdminBookingSections, getAdminOverviewMetrics, getBookingEndAt, getBuenosAiresDate, getCalendarBookings, isBookingUpcoming } from '../src/lib/adminOverview.js';
+import { getAdminBookingSections, getAdminOverviewMetrics, getBookingEndAt, getBuenosAiresDate, getCalendarBookings, isBookingPast, isBookingUpcoming } from '../src/lib/adminOverview.js';
 
 const now = new Date('2026-09-01T02:30:00.000Z');
 
@@ -46,6 +46,8 @@ test('clasifica y ordena próximos e historial por fecha y final del turno', () 
     { id: 3, fecha: '2026-09-01', hora: '04:00-05:00', estado: 'confirmada' },
     { id: 4, fecha: '2026-08-30', hora: '20:00-21:00', estado: 'cancelada' },
     { id: 5, fecha: '2026-07-01', hora: '20:00-21:00', estado: 'confirmada' },
+    { id: 6, fecha: '2026-09-01', hora: '03:00-04:00', estado: 'cancelada' },
+    { id: 7, fecha: '2026-09-01', hora: '03:00-04:00', estado: 'expirada' },
   ];
   const sections = getAdminBookingSections(bookings, at);
   assert.deepEqual(sections.upcoming.map((booking) => booking.id), [3, 2]);
@@ -54,6 +56,8 @@ test('clasifica y ordena próximos e historial por fecha y final del turno', () 
   assert.equal(isBookingUpcoming(bookings[0], at), false);
   assert.equal(getBookingEndAt(bookings[0]).toISOString(), '2026-09-01T02:00:00.000Z');
   assert.equal(isBookingUpcoming(bookings[0], new Date('2026-09-01T02:00:00.000Z')), false);
+  assert.equal(isBookingPast(bookings[5], at), false);
+  assert.equal(isBookingPast(bookings[6], at), false);
 });
 
 test('considera que un turno que termina a medianoche finaliza al día siguiente', () => {
@@ -61,6 +65,8 @@ test('considera que un turno que termina a medianoche finaliza al día siguiente
   assert.equal(getBookingEndAt(booking).toISOString(), '2026-09-01T03:00:00.000Z');
   assert.equal(isBookingUpcoming(booking, new Date('2026-09-01T02:30:00.000Z')), true);
   assert.equal(isBookingUpcoming(booking, new Date('2026-09-01T03:00:00.000Z')), false);
+  assert.equal(isBookingPast(booking, new Date('2026-09-01T02:59:59.000Z')), false);
+  assert.equal(isBookingPast(booking, new Date('2026-09-01T03:00:00.000Z')), true);
 });
 
 test('no muestra en la agenda las reservas ocultas del historial', () => {

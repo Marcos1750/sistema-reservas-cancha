@@ -2521,7 +2521,7 @@ function AdminNavContent({
         {showAppLink && (
           <a className="admin-nav-item" href="/">
             <Icon name="back" size={18} />
-            <span>Ver aplicación</span>
+            <span>Inicio</span>
           </a>
         )}
         <button className="admin-nav-item" type="button" onClick={onLogout}>
@@ -2559,13 +2559,26 @@ export default function PanelAdmin() {
   const [upcomingLimit, setUpcomingLimit] = useState(CALENDAR_PAGE_SIZE);
   const [activeSection, setActiveSection] = useState("overview");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
   const [profileAttempt, setProfileAttempt] = useState(0);
   const drawerRef = useRef(null);
   const menuButtonRef = useRef(null);
   const activeItemRef = useRef(null);
   const wasMenuOpenRef = useRef(false);
   const drawerCloseTimerRef = useRef(null);
+  const activeViewRef = useRef({ section: activeSection, calendarTab });
+  const clearError = useCallback(() => setError(null), []);
+  const showError = useCallback((message, sourceView) => {
+    const view = sourceView || activeViewRef.current;
+    setError({
+      message,
+      section: view.section,
+      calendarTab: view.section === "calendar" ? view.calendarTab : null,
+    });
+  }, []);
+  useEffect(() => {
+    activeViewRef.current = { section: activeSection, calendarTab };
+  }, [activeSection, calendarTab]);
   const request = useCallback(
     async (path, options) =>
       demo
@@ -2607,7 +2620,11 @@ export default function PanelAdmin() {
           );
         else {
           setProfile(false);
-          setError(requestError.message);
+          setError({
+            message: requestError.message,
+            section: "access",
+            calendarTab: null,
+          });
         }
       });
 
@@ -2618,12 +2635,13 @@ export default function PanelAdmin() {
   }, [profileAttempt, request, sessionUserId]);
   useEffect(() => {
     if (!profile || profile === false) return undefined;
+    const loadView = { ...activeViewRef.current };
     const timer = window.setTimeout(
-      () => reload().catch((requestError) => setError(requestError.message)),
+      () => reload().catch((requestError) => showError(requestError.message, loadView)),
       0,
     );
     return () => window.clearTimeout(timer);
-  }, [profile, reload]);
+  }, [profile, reload, showError]);
   useEffect(() => {
     const timer = window.setInterval(() => setAgendaNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
@@ -2691,7 +2709,7 @@ export default function PanelAdmin() {
     });
   const startDemo = () => {
     enableDemoAdmin();
-    setError("");
+    clearError();
     setProfile(null);
     setProfileAttempt(0);
     setDemo(true);
@@ -2715,6 +2733,7 @@ export default function PanelAdmin() {
     setUpcomingLimit(CALENDAR_PAGE_SIZE);
   };
   const changeAdminSection = (nextSection) => {
+    clearError();
     setActiveSection(nextSection);
     setMenuOpen(false);
     if (nextSection === "calendar") {
@@ -2722,6 +2741,10 @@ export default function PanelAdmin() {
       setUpcomingLimit(CALENDAR_PAGE_SIZE);
     }
     window.scrollTo({ top: 0, behavior: "instant" });
+  };
+  const changeCalendarTab = (nextTab) => {
+    clearError();
+    setCalendarTab(nextTab);
   };
   const closeAdminMenu = () => setMenuOpen(false);
   const cancelBooking = async (id) => {
@@ -2735,12 +2758,13 @@ export default function PanelAdmin() {
       }))
     )
       return;
-    setError("");
+    const errorView = { ...activeViewRef.current };
+    clearError();
     try {
       await request(`/api/admin/reservas/${id}`, { method: "DELETE" });
       await reload();
     } catch (requestError) {
-      setError(requestError.message);
+      showError(requestError.message, errorView);
       alert({
         title: "No se pudo cancelar la reserva",
         description: requestError.message,
@@ -2757,12 +2781,13 @@ export default function PanelAdmin() {
       }))
     )
       return;
-    setError("");
+    const errorView = { ...activeViewRef.current };
+    clearError();
     try {
       await request(`/api/admin/reservas/${id}/ocultar-historial`, { method: "POST" });
       await reload();
     } catch (requestError) {
-      setError(requestError.message);
+      showError(requestError.message, errorView);
       alert({
         title: "No se pudo quitar del historial",
         description: requestError.message,
@@ -2779,12 +2804,13 @@ export default function PanelAdmin() {
       }))
     )
       return;
-    setError("");
+    const errorView = { ...activeViewRef.current };
+    clearError();
     try {
       await request(`/api/admin/reservas/${id}/marcar-cumplida`, { method: "POST" });
       await reload();
     } catch (requestError) {
-      setError(requestError.message);
+      showError(requestError.message, errorView);
       alert({
         title: "No se pudo actualizar el turno",
         description: requestError.message,
@@ -2802,7 +2828,7 @@ export default function PanelAdmin() {
         onLogin={login}
         onDemo={startDemo}
         message={
-          error ||
+          error?.message ||
           "Esta cuenta no tiene permisos. Elegí la cuenta autorizada de Google para continuar."
         }
       />
@@ -2855,6 +2881,11 @@ export default function PanelAdmin() {
     onSelect: changeAdminSection,
     onLogout: logout,
   };
+  const visibleError =
+    error?.section === activeSection &&
+    (activeSection !== "calendar" || error.calendarTab === calendarTab)
+      ? error.message
+      : "";
   return (
     <div className="admin-shell">
       <header className="admin-mobile-bar">
@@ -2926,7 +2957,15 @@ export default function PanelAdmin() {
             </span>
           </div>
         </header>
-        {error && <p className="form-error">{error}</p>}
+        {visibleError && (
+          <p
+            className="form-error admin-page-error"
+            role="alert"
+            aria-live="assertive"
+          >
+            {visibleError}
+          </p>
+        )}
         {activeSection === "overview" && (
           <>
             <section className="admin-stats">
@@ -3010,7 +3049,7 @@ export default function PanelAdmin() {
                 type="button"
                 aria-pressed={calendarTab === "upcoming"}
                 aria-controls="admin-calendar-panel-upcoming"
-                onClick={() => setCalendarTab("upcoming")}
+                onClick={() => changeCalendarTab("upcoming")}
               >
                 <span>Próximos</span>
                 <b>{upcomingBookings.length}</b>
@@ -3021,7 +3060,7 @@ export default function PanelAdmin() {
                 type="button"
                 aria-pressed={calendarTab === "history"}
                 aria-controls="admin-calendar-panel-history"
-                onClick={() => setCalendarTab("history")}
+                onClick={() => changeCalendarTab("history")}
               >
                 <span>Historial</span>
                 <b>{historyBookings.length}</b>
