@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -11,6 +11,7 @@ import { ActionFeedback } from './ActionFeedback';
 import { getAvailabilityStatus } from './lib/availability';
 import { getSelectableSlots } from './lib/slotVisibility';
 import { splitBookingsByTimeline } from './lib/bookings';
+import { bookingPath, complexPath, complexSlug, hasCompleteBookingSelection, publicScreenPath, readBookingSelection } from './lib/publicRoutes';
 import { formatARS } from './mockData';
 import { authClient } from './authClient';
 import { apiFetch, readApiResponse } from './api';
@@ -203,12 +204,12 @@ function DetailScreen({ complex, court, onSelectCourt, date, setDate, time, setT
   const displayPrice = court?.slotPrices?.[time] ?? court?.price ?? 0;
   const selectedTheme = court ? getSportTheme(court.sport) : getComplexTheme(complex.sports);
   const toggleSaved = async () => { const result = await onToggleSaved(complex.id); if (result) notify({ title: result.saved ? 'Complejo guardado' : 'Quitado de guardados', description: result.saved ? `${complex.name} quedó listo para tu próximo partido.` : `${complex.name} ya no aparece en tu lista.`, status: result.saved ? 'success' : 'info' }); };
-  return <div className={`app-shell app-shell--detail sport-context sport-theme--${selectedTheme}`}><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(complex.id) ? ' is-saved' : ''}`} type="button" onClick={toggleSaved} aria-label="Guardar complejo"><Icon name="heart" size={18} /></button></header><main className="detail-content complex-detail"><section className="complex-detail__identity"><VenueVisual complex={complex} sport={court?.sport} sports={court ? [court.sport] : complex.sports} large /><div className="detail-intro"><div><span className="detail-eyebrow">COMPLEJO SELECCIONADO</span><h1>{complex.name}</h1><p><Icon name="pin" size={14} /> {complex.city}, {complex.province} <span className="dot-separator">·</span> {complex.address}</p></div></div><p className="detail-description">{complex.description || 'Todo listo para organizar tu próximo partido.'}</p></section><section className="complex-detail__booking"><div className="court-selector"><div className="section-label"><span>Elegí una cancha</span><small>{complex.courts.length} disponibles</small></div><div className="court-selector__grid">{complex.courts.map((item) => <button className={`court-choice sport-theme--${getSportTheme(item.sport)}${court?.id === item.id ? ' is-selected' : ''}`} key={item.id} type="button" onClick={() => onSelectCourt(item)}><span><strong>{item.name}</strong><small>{item.sport} · {item.indoor ? 'Indoor' : 'A cielo abierto'}</small></span><b>{item.price ? formatARS(item.price) : 'Sin precio'}</b></button>)}</div></div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} />{court ? <AvailabilityPanel status={availabilityStatus} slots={court.slots} selectedTime={time} onSelectTime={setTime} onRetry={onRetryAvailability} onNextDate={() => setDate(nextDateValue(date))} date={date} now={now} /> : <div className="inline-empty">Elegí una cancha para consultar sus horarios.</div>}</section></section></main><div className={`sticky-cta${time ? '' : ' sticky-cta--awaiting-selection'}`}>{time ? <div><small>Total del turno</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div> : <p>{court ? 'Elegí un horario para ver el total.' : 'Elegí una cancha para continuar.'}</p>}<Button className="primary-button" type="button" disabled={!court || !time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div>;
+  return <div className={`app-shell app-shell--detail sport-context sport-theme--${selectedTheme}`}><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onBack} /><button className={`round-button${saved.includes(complex.id) ? ' is-saved' : ''}`} type="button" onClick={toggleSaved} aria-label="Guardar complejo"><Icon name="heart" size={18} /></button></header><main className="detail-content complex-detail"><section className="complex-detail__identity"><VenueVisual complex={complex} sport={court?.sport} sports={court ? [court.sport] : complex.sports} large /><div className="detail-intro"><div><span className="detail-eyebrow">COMPLEJO SELECCIONADO</span><h1>{complex.name}</h1><p><Icon name="pin" size={14} /> {complex.city}, {complex.province} <span className="dot-separator">·</span> {complex.address}</p></div></div><p className="detail-description">{complex.description || 'Todo listo para organizar tu próximo partido.'}</p></section><section className="complex-detail__booking"><div className="court-selector"><div className="section-label"><span>Elegí una cancha</span><small>{complex.courts.length} disponibles</small></div><div className="court-selector__grid">{complex.courts.map((item) => <button className={`court-choice sport-theme--${getSportTheme(item.sport)}${court?.id === item.id ? ' is-selected' : ''}`} key={item.id} type="button" onClick={() => onSelectCourt(item)}><span><strong>{item.name}</strong><small>{item.sport} · {item.indoor ? 'Indoor' : 'A cielo abierto'}</small></span><b>{item.price ? formatARS(item.price) : 'Sin precio'}</b></button>)}</div></div><section className="availability"><div className="section-label"><span>Elegí tu horario</span><span className="availability-note"><span className="availability-dot" /> Disponible</span></div><DateRail selected={date} onSelect={setDate} />{court ? <AvailabilityPanel status={availabilityStatus} slots={court.slots} selectedTime={time} onSelectTime={setTime} onRetry={onRetryAvailability} onNextDate={() => setDate(nextDateValue(date))} date={date} now={now} /> : <div className="inline-empty">Elegí una cancha para consultar sus horarios.</div>}</section></section></main><div className={`sticky-cta${time ? '' : ' sticky-cta--awaiting-selection'}`}><div className="sticky-cta__inner">{time ? <div><small>Total del turno</small><strong>{formatARS(displayPrice)}</strong><span>/ turno</span></div> : <p>{court ? 'Elegí un horario para ver el total.' : 'Elegí una cancha para continuar.'}</p>}<Button className="primary-button" type="button" disabled={!court || !time} onClick={onReserve}>Reservar turno <Icon name="arrow" size={17} /></Button></div></div></div>;
 }
 
 function BookingScreen({ complex, court, date, time, form, setForm, repeatWeekly, setRepeatWeekly, repeatWeeks, setRepeatWeeks, onBack, onHome, onConfirm, error, defaultName, defaultPhone, submitting }) {
   const price = court.slotPrices?.[time] ?? court.price;
-  return <div className={`app-shell app-shell--booking sport-context sport-theme--${getSportTheme(court.sport)}`}><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onHome} /><span className="step-count">02 / 02</span></header><main className="booking-content"><div className="booking-summary"><VenueVisual complex={complex} sport={court.sport} sports={[court.sport]} /><div><span className="detail-eyebrow">TU TURNO</span><h2>{complex.name}</h2><strong className="booking-summary__court">{court.name}</strong><p><Icon name="calendar" size={13} /> {date} <span className="dot-separator">·</span> <Icon name="clock" size={13} /> {time}</p></div></div><div className="booking-divider" /><section className="form-section"><span className="section-kicker">DATOS DEL CAPITÁN</span><h1>¿A nombre de quién<br />reservamos?</h1><label>Nombre completo<Input value={form.name || defaultName || ''} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Martín Sosa" autoComplete="name" disabled={submitting} /></label><label>WhatsApp<Input value={form.phone || defaultPhone || ''} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="11 5555 5555" inputMode="tel" autoComplete="tel" disabled={submitting} /></label>{!court.requiresDeposit && <p className="booking-payment-notice" role="status">Sin seña: la reserva se confirmará de inmediato.</p>}<section className="recurring-option"><div className="recurring-option__toggle"><button className="recurring-option__copy" type="button" disabled={submitting} onClick={() => setRepeatWeekly(!repeatWeekly)}><strong>Reservar horario fijo</strong><small>Repite este mismo día y horario todas las semanas.</small></button><BeUISwitch checked={repeatWeekly} onCheckedChange={setRepeatWeekly} disabled={submitting} ariaLabel="Reservar horario fijo" /></div>{repeatWeekly && <label className="recurring-option__weeks">¿Por cuánto tiempo?<select value={repeatWeeks} disabled={submitting} onChange={(event) => setRepeatWeeks(Number(event.target.value))}><option value={4}>4 semanas</option><option value={8}>8 semanas</option><option value={12}>12 semanas</option></select></label>}{repeatWeekly && court.requiresDeposit && <small className="recurring-option__deposit-note" role="status">La seña se cobra una sola vez: corresponde al primer turno. El resto se paga en el complejo.</small>}</section></section></main><div className="sticky-cta sticky-cta--booking"><div><small>{repeatWeekly ? `Total por ${repeatWeeks} semanas` : 'Total del turno'}</small><strong>{formatARS(price * (repeatWeekly ? repeatWeeks : 1))}</strong></div><Button className="primary-button" type="button" disabled={submitting} onClick={onConfirm}>{submitting ? court.requiresDeposit ? 'Preparando pago…' : 'Confirmando…' : repeatWeekly ? 'Confirmar horario fijo' : 'Confirmar reserva'} <Icon name="check" size={17} /></Button><ActionFeedback className="sticky-cta__feedback" message={error} tone="error" /></div></div>;
+  return <div className={`app-shell app-shell--booking sport-context sport-theme--${getSportTheme(court.sport)}`}><header className="detail-header"><button className="round-button" type="button" onClick={onBack} aria-label="Volver"><Icon name="back" size={19} /></button><Brand onClick={onHome} /><span className="step-count">02 / 02</span></header><main className="booking-content"><div className="booking-summary"><VenueVisual complex={complex} sport={court.sport} sports={[court.sport]} /><div><span className="detail-eyebrow">TU TURNO</span><h2>{complex.name}</h2><strong className="booking-summary__court">{court.name}</strong><p><Icon name="calendar" size={13} /> {date} <span className="dot-separator">·</span> <Icon name="clock" size={13} /> {time}</p></div></div><div className="booking-divider" /><section className="form-section"><span className="section-kicker">DATOS DEL CAPITÁN</span><h1>¿A nombre de quién<br />reservamos?</h1><label>Nombre completo<Input value={form.name || defaultName || ''} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Martín Sosa" autoComplete="name" disabled={submitting} /></label><label>WhatsApp<Input value={form.phone || defaultPhone || ''} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="11 5555 5555" inputMode="tel" autoComplete="tel" disabled={submitting} /></label>{!court.requiresDeposit && <p className="booking-payment-notice" role="status">Sin seña: la reserva se confirmará de inmediato.</p>}<section className="recurring-option"><div className="recurring-option__toggle"><button className="recurring-option__copy" type="button" disabled={submitting} onClick={() => setRepeatWeekly(!repeatWeekly)}><strong>Reservar horario fijo</strong><small>Repite este mismo día y horario todas las semanas.</small></button><BeUISwitch checked={repeatWeekly} onCheckedChange={setRepeatWeekly} disabled={submitting} ariaLabel="Reservar horario fijo" /></div>{repeatWeekly && <label className="recurring-option__weeks">¿Por cuánto tiempo?<select value={repeatWeeks} disabled={submitting} onChange={(event) => setRepeatWeeks(Number(event.target.value))}><option value={4}>4 semanas</option><option value={8}>8 semanas</option><option value={12}>12 semanas</option></select></label>}{repeatWeekly && court.requiresDeposit && <small className="recurring-option__deposit-note" role="status">La seña se cobra una sola vez: corresponde al primer turno. El resto se paga en el complejo.</small>}</section></section></main><div className="sticky-cta sticky-cta--booking"><div className="sticky-cta__inner"><div><small>{repeatWeekly ? `Total por ${repeatWeeks} semanas` : 'Total del turno'}</small><strong>{formatARS(price * (repeatWeekly ? repeatWeeks : 1))}</strong></div><Button className="primary-button" type="button" disabled={submitting} onClick={onConfirm}>{submitting ? court.requiresDeposit ? 'Preparando pago…' : 'Confirmando…' : repeatWeekly ? 'Confirmar horario fijo' : 'Confirmar reserva'} <Icon name="check" size={17} /></Button><ActionFeedback className="sticky-cta__feedback" message={error} tone="error" /></div></div></div>;
 }
 
 function SuccessScreen({ complex, court, date, time, onDone, repeatWeeks }) {
@@ -284,26 +285,27 @@ function mapApiComplex(item) {
   return { id: Number(item.id), name: item.nombre, city: item.ciudad, province: item.provincia, address: item.direccion || 'Dirección a confirmar', description: item.descripcion || '', photoUrl: item.foto_url || '', ownerReservationFree: item.reserva_sin_sena === true, courtCount: Number(item.cantidad_canchas || 0), sports: item.deportes || [], price: Number(item.precio_desde || 0), courts: [] };
 }
 
-function complexSlug(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 function mapApiCourt(item, ownerReservationFree = false) {
   return { id: Number(item.id), name: item.nombre, sport: item.deporte, description: item.descripcion || '', indoor: Boolean(item.indoor), ownerReservationFree, requiresDeposit: item.requiere_sena !== false && !ownerReservationFree, price: Number(item.precio_desde || 0), slots: [], slotPrices: {} };
 }
 
 export default function Reservas() {
-  const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const detailMatch = useMatch('/complejos/:slug');
+  const bookingMatch = useMatch('/complejos/:slug/reservar');
+  const slug = bookingMatch?.params.slug || detailMatch?.params.slug || '';
+  const paymentCode = new URLSearchParams(location.search).get('pago');
+  const screen = bookingMatch
+    ? 'booking'
+    : detailMatch
+      ? 'detail'
+      : paymentCode
+        ? 'bookings'
+        : ({ '/': 'explore', '/turnos': 'bookings', '/guardados': 'saved', '/cuenta': 'profile' }[location.pathname] || 'not-found');
   const { data: session, isPending } = useSessionWithFallback();
   const confirm = useConfirm();
   const sessionUserId = session?.user?.id;
-  const [screen, setScreen] = useState(() => new URLSearchParams(window.location.search).has('pago') ? 'bookings' : 'explore');
   const [complexes, setComplexes] = useState([]);
   const [complexesLoaded, setComplexesLoaded] = useState(false);
   const [selectedComplex, setSelectedComplex] = useState(null);
@@ -325,7 +327,11 @@ export default function Reservas() {
   const [profileAttempt, setProfileAttempt] = useState(0);
   const [pendingCheckout, setPendingCheckout] = useState(null);
   const deepLinkHandled = useRef('');
-  const [paymentNotice] = useState(() => ({ exitoso: 'Estamos verificando el pago de tu seña.', pendiente: 'Tu pago sigue pendiente. Podés retomarlo desde este turno.', fallido: 'El pago no se completó. Podés intentarlo nuevamente o cancelar la solicitud.' }[new URLSearchParams(window.location.search).get('pago')] || ''));
+  const paymentNotice = location.state?.paymentNotice || ({ exitoso: 'Estamos verificando el pago de tu seña.', pendiente: 'Tu pago sigue pendiente. Podés retomarlo desde este turno.', fallido: 'El pago no se completó. Podés intentarlo nuevamente o cancelar la solicitud.' }[paymentCode] || '');
+  const confirmation = location.pathname === '/turnos' ? location.state?.confirmation : null;
+  const goToScreen = useCallback((next, options = {}) => {
+    navigate(publicScreenPath(next), options);
+  }, [navigate]);
 
   useEffect(() => { apiFetch('/api/complejos').then(readApiResponse).then((items) => setComplexes(items.map(mapApiComplex))).catch(() => setComplexes([])).finally(() => setComplexesLoaded(true)); }, []);
   useEffect(() => { if (!session?.user) return; apiFetch('/api/mis-reservas').then(readApiResponse).then((items) => setBookings(items.map(mapApiBooking))).catch(() => setBookings([])); }, [session]);
@@ -365,15 +371,23 @@ export default function Reservas() {
       apiFetch(`/api/complejos/${draft.complexId}`).then(readApiResponse).then((item) => {
         const complex = { ...mapApiComplex(item), courts: item.canchas.map((court) => mapApiCourt(court, item.reserva_sin_sena === true)) };
         const court = complex.courts.find((candidate) => candidate.id === Number(draft.courtId));
-        setSelectedComplex(complex); setSelectedCourt(court || null); setSelectedDate(draft.date || dateOptions[0].value); setSelectedTime(draft.time || ''); sessionStorage.removeItem('pending-booking'); setScreen(court ? 'booking' : 'detail');
-      }).catch(() => { sessionStorage.removeItem('pending-booking'); setScreen('explore'); });
+        setSelectedComplex(complex); setSelectedCourt(court || null); setSelectedDate(draft.date || dateOptions[0].value); setSelectedTime(draft.time || ''); sessionStorage.removeItem('pending-booking'); navigate(court ? bookingPath(complex, court.id, draft.date, draft.time) : complexPath(complex), { replace: true });
+      }).catch(() => { sessionStorage.removeItem('pending-booking'); navigate('/', { replace: true }); });
     } catch { sessionStorage.removeItem('pending-booking'); }
-  }, [session, complexesLoaded]);
+  }, [session, complexesLoaded, navigate]);
 
   useEffect(() => {
-    if (!new URLSearchParams(window.location.search).has('pago')) return;
-    window.history.replaceState({}, '', window.location.pathname);
-  }, []);
+    if (!paymentCode) return;
+    navigate('/turnos', { replace: true, state: { paymentNotice } });
+  }, [navigate, paymentCode, paymentNotice]);
+
+  useEffect(() => {
+    if (screen === 'not-found') navigate('/', { replace: true });
+  }, [navigate, screen]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [location.pathname]);
 
   useEffect(() => {
     if (screen !== 'detail' || !selectedCourt?.id) return;
@@ -419,33 +433,55 @@ export default function Reservas() {
   };
   const retryAvailability = refreshAvailability;
   const loginWithGoogle = () => authClient.signIn.social({ provider: 'google', callbackURL: window.location.href });
-  const openComplex = useCallback(async (summary, { updateUrl = true } = {}) => {
+  const openComplex = useCallback(async (summary, { updateUrl = true, selection = null } = {}) => {
     setError('');
     try {
       const item = await readApiResponse(await apiFetch(`/api/complejos/${summary.id}`));
       const complex = { ...mapApiComplex(item), courts: item.canchas.map((court) => mapApiCourt(court, item.reserva_sin_sena === true)) };
-      setAvailabilityNow(new Date()); setSelectedComplex(complex); setSelectedCourt(complex.courts[0] || null); setSelectedTime(''); setAvailabilityStatus('loading'); setAvailabilityRefreshId((current) => current + 1); setScreen('detail'); window.scrollTo({ top: 0, behavior: 'smooth' });
-      if (updateUrl) navigate(`/complejos/${complexSlug(complex.name)}`);
+      const requestedCourt = selection?.courtId ? complex.courts.find((court) => court.id === selection.courtId) : null;
+      if (selection && !requestedCourt) throw new Error('La cancha seleccionada ya no está disponible.');
+      setAvailabilityNow(new Date()); setSelectedComplex(complex); setSelectedCourt(requestedCourt || complex.courts[0] || null); setSelectedDate(selection?.date || dateOptions[0].value); setSelectedTime(selection?.time || ''); setAvailabilityStatus('loading'); setAvailabilityRefreshId((current) => current + 1); window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (updateUrl) navigate(complexPath(complex), { state: { from: location.pathname } });
     } catch (requestError) { setError(requestError.message); }
-  }, [navigate]);
+  }, [location.pathname, navigate]);
   useEffect(() => {
     if (!slug) {
       deepLinkHandled.current = '';
       return;
     }
-    if (!complexesLoaded || deepLinkHandled.current === slug) return;
+    const routeKey = `${screen}:${slug}:${location.search}`;
+    if (!complexesLoaded || deepLinkHandled.current === routeKey) return;
     const target = complexes.find((complex) => String(complex.id) === slug || complexSlug(complex.name) === complexSlug(slug));
     if (target) {
-      if (selectedComplex?.id === target.id) {
-        deepLinkHandled.current = slug;
+      const selection = screen === 'booking' ? readBookingSelection(location.search) : null;
+      if (selection && !hasCompleteBookingSelection(selection)) {
+        deepLinkHandled.current = routeKey;
+        setError('Elegí nuevamente la cancha, la fecha y el horario para continuar.');
+        navigate(complexPath(target), { replace: true });
         return;
       }
-      deepLinkHandled.current = slug;
-      openComplex(target, { updateUrl: false });
+      if (selectedComplex?.id === target.id) {
+        if (selection) {
+          const court = selectedComplex.courts.find((candidate) => candidate.id === selection.courtId);
+          if (!court) {
+            setError('La cancha seleccionada ya no está disponible.');
+            navigate(complexPath(target), { replace: true });
+            return;
+          }
+          setSelectedCourt(court);
+          setSelectedDate(selection.date);
+          setSelectedTime(selection.time);
+        }
+        deepLinkHandled.current = routeKey;
+        return;
+      }
+      deepLinkHandled.current = routeKey;
+      openComplex(target, { updateUrl: false, selection });
     } else {
       setError('No encontramos ese complejo.');
+      navigate('/', { replace: true });
     }
-  }, [slug, complexes, complexesLoaded, openComplex, selectedComplex]);
+  }, [slug, screen, location.search, complexes, complexesLoaded, navigate, openComplex, selectedComplex]);
   const chooseCourt = (court) => { setAvailabilityNow(new Date()); setAvailabilityStatus('loading'); setAvailabilityRefreshId((current) => current + 1); setSelectedCourt(court); setSelectedTime(''); };
   const toggleSaved = async (id) => {
     if (!session?.user) {
@@ -465,7 +501,7 @@ export default function Reservas() {
   const beginBooking = () => {
     setError('');
     if (!session?.user) { sessionStorage.setItem('pending-booking', JSON.stringify({ complexId: selectedComplex.id, courtId: selectedCourt.id, date: selectedDate, time: selectedTime })); return loginWithGoogle(); }
-    setScreen('booking');
+    navigate(bookingPath(selectedComplex, selectedCourt.id, selectedDate, selectedTime), { state: { fromDetail: true } });
   };
   const confirmBooking = async () => {
     const bookingName = form.name.trim() || profile?.nombre?.trim() || session?.user?.name?.trim();
@@ -475,6 +511,7 @@ export default function Reservas() {
     try {
       const result = await readApiResponse(await apiFetch('/api/reservas', { method: 'POST', body: JSON.stringify({ nombre: bookingName, telefono: bookingPhone, fecha: selectedDate, hora: selectedTime, cancha_id: selectedCourt.id, recurrente: repeatWeekly, semanas: repeatWeeks }) }));
       if (result.requiere_pago && result.pago?.checkout_url) {
+        navigate('/turnos', { replace: true });
         setPendingCheckout({ reservationId: result.id, checkoutUrl: result.pago.checkout_url, complex: selectedComplex.name });
         return;
       }
@@ -490,25 +527,39 @@ export default function Reservas() {
         puede_cancelar: true,
       }));
       setBookings((current) => [...createdBookings, ...current]);
-      setScreen('success');
+      navigate('/turnos', {
+        replace: true,
+        state: {
+          confirmation: {
+            complex: selectedComplex,
+            court: selectedCourt,
+            date: selectedDate,
+            time: selectedTime,
+            repeatWeeks: repeatWeekly ? repeatWeeks : 0,
+          },
+        },
+      });
     } catch (requestError) { setError(requestError.message); } finally { setSubmittingBooking(false); }
   };
-  const backToExplore = () => { setScreen('explore'); setSelectedComplex(null); setSelectedCourt(null); setSelectedTime(''); setError(''); setForm((current) => ({ ...current, phone: '' })); setRepeatWeekly(false); setRepeatWeeks(4); navigate('/'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const backToExplore = () => { setSelectedComplex(null); setSelectedCourt(null); setSelectedTime(''); setError(''); setForm((current) => ({ ...current, phone: '' })); setRepeatWeekly(false); setRepeatWeeks(4); navigate('/'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const backFromDetail = () => location.state?.from ? navigate(-1) : backToExplore();
+  const backFromBooking = () => location.state?.fromDetail ? navigate(-1) : navigate(complexPath(selectedComplex), { replace: true });
   const cancelBooking = async (booking) => { const isPayment = booking.status === 'Pendiente de pago'; if (!(await confirm({ title: isPayment ? '¿Cancelar la solicitud de pago?' : '¿Cancelar tu turno?', description: isPayment ? 'Se cancela la solicitud y el horario vuelve a quedar disponible para otras personas.' : `Vas a cancelar tu turno en ${booking.complex}. El horario queda libre y no se puede deshacer.`, confirmText: isPayment ? 'Cancelar solicitud' : 'Cancelar turno', cancelText: 'Volver', tone: 'danger' }))) return null; setError(''); try { const result = await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' })); setBookings((current) => current.map((item) => item.id === booking.id || (result.recurrencia_id && item.recurrenceId === result.recurrencia_id) ? { ...item, status: 'Cancelado', canCancel: false, paymentUrl: '' } : item)); return { tone: 'success', message: 'La reserva fue cancelada.' }; } catch (requestError) { setError(requestError.message); return { tone: 'error', message: requestError.message }; } };
-  const cancelPendingCheckout = async () => { if (!pendingCheckout) return; const booking = { id: pendingCheckout.reservationId, complex: pendingCheckout.complex, status: 'Pendiente de pago' }; if (!(await confirm({ title: '¿Cancelar esta solicitud?', description: 'Se cancela la solicitud de pago y el horario vuelve a quedar disponible para otras personas.', confirmText: 'Cancelar solicitud', cancelText: 'Volver', tone: 'danger' }))) return; setError(''); try { await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' })); setPendingCheckout(null); setScreen('bookings'); const items = await readApiResponse(await apiFetch('/api/mis-reservas')); setBookings(items.map(mapApiBooking)); } catch (requestError) { setError(requestError.message); } };
-  const logout = async () => { await authClient.signOut(); setScreen('explore'); };
+  const cancelPendingCheckout = async () => { if (!pendingCheckout) return; const booking = { id: pendingCheckout.reservationId, complex: pendingCheckout.complex, status: 'Pendiente de pago' }; if (!(await confirm({ title: '¿Cancelar esta solicitud?', description: 'Se cancela la solicitud de pago y el horario vuelve a quedar disponible para otras personas.', confirmText: 'Cancelar solicitud', cancelText: 'Volver', tone: 'danger' }))) return; setError(''); try { await readApiResponse(await apiFetch(`/api/mis-reservas/${booking.id}/cancelar`, { method: 'POST' })); setPendingCheckout(null); navigate('/turnos', { replace: true }); const items = await readApiResponse(await apiFetch('/api/mis-reservas')); setBookings(items.map(mapApiBooking)); } catch (requestError) { setError(requestError.message); } };
+  const logout = async () => { await authClient.signOut(); navigate('/'); };
   const saveProfile = async (draft) => { const nextProfile = await readApiResponse(await apiFetch('/api/perfil', { method: 'PUT', body: JSON.stringify(draft) })); setProfile(nextProfile); };
 
   if (isPending) return <LoadingScreen message="Preparando tu sesión…" />;
   const canManage = Boolean(sessionUserId) && ['admin_cancha', 'subadmin', 'superadmin'].includes(profile?.role);
-  const layout = (current, child, showMobileNav = false) => <PublicLayout current={current} onChange={setScreen} session={session} canManage={canManage} showMobileNav={showMobileNav}>{child}</PublicLayout>;
+  const layout = (current, child, showMobileNav = false) => <PublicLayout current={current} onChange={goToScreen} session={session} canManage={canManage} showMobileNav={showMobileNav}>{child}</PublicLayout>;
   if (pendingCheckout) return <PaymentScreen payment={pendingCheckout} onCancel={cancelPendingCheckout} />;
-  if (screen === 'detail' && selectedComplex) return layout('explore', <DetailScreen complex={selectedComplex} court={selectedCourt} onSelectCourt={chooseCourt} date={selectedDate} setDate={chooseDate} time={selectedTime} setTime={setSelectedTime} onBack={backToExplore} onReserve={beginBooking} saved={saved} onToggleSaved={toggleSaved} availabilityStatus={availabilityStatus} onRetryAvailability={retryAvailability} now={availabilityNow} />);
-  if (screen === 'booking' && selectedComplex && selectedCourt) return layout(null, <BookingScreen complex={selectedComplex} court={selectedCourt} date={selectedDate} time={selectedTime} form={form} setForm={setForm} repeatWeekly={repeatWeekly} setRepeatWeekly={setRepeatWeekly} repeatWeeks={repeatWeeks} setRepeatWeeks={setRepeatWeeks} onBack={() => setScreen('detail')} onHome={backToExplore} onConfirm={confirmBooking} error={error} defaultName={profile?.nombre || session?.user?.name} defaultPhone={profile?.whatsapp} submitting={submittingBooking} />);
-  if (screen === 'success' && selectedComplex && selectedCourt) return layout(null, <SuccessScreen complex={selectedComplex} court={selectedCourt} date={selectedDate} time={selectedTime} repeatWeeks={repeatWeekly ? repeatWeeks : 0} onDone={backToExplore} />);
-  const openAccount = () => session?.user ? setScreen('profile') : loginWithGoogle();
-  if (screen === 'bookings') return layout('bookings', <BookingsScreen bookings={bookings} onChange={setScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} notice={paymentNotice} canManage={canManage} />, true);
-  if (screen === 'saved') return layout('saved', <SavedScreen complexes={complexes} saved={saved} onOpen={openComplex} onToggleSaved={toggleSaved} onChange={setScreen} session={session} onLogin={loginWithGoogle} canManage={canManage} />, true);
-  if (screen === 'profile') return layout('profile', <ProfileScreen key={profile?.email || session?.user?.id || 'guest'} profile={profile} session={session?.user} onChange={setScreen} onLogin={loginWithGoogle} onLogout={logout} onSave={saveProfile} canManage={canManage} />, true);
+  if (confirmation) return <SuccessScreen {...confirmation} onDone={() => navigate('/', { replace: true })} />;
+  if (slug && !selectedComplex) return <LoadingScreen message="Cargando el complejo…" />;
+  if (screen === 'detail' && selectedComplex) return layout('explore', <DetailScreen complex={selectedComplex} court={selectedCourt} onSelectCourt={chooseCourt} date={selectedDate} setDate={chooseDate} time={selectedTime} setTime={setSelectedTime} onBack={backFromDetail} onReserve={beginBooking} saved={saved} onToggleSaved={toggleSaved} availabilityStatus={availabilityStatus} onRetryAvailability={retryAvailability} now={availabilityNow} />);
+  if (screen === 'booking' && selectedComplex && selectedCourt) return layout(null, <BookingScreen complex={selectedComplex} court={selectedCourt} date={selectedDate} time={selectedTime} form={form} setForm={setForm} repeatWeekly={repeatWeekly} setRepeatWeekly={setRepeatWeekly} repeatWeeks={repeatWeeks} setRepeatWeeks={setRepeatWeeks} onBack={backFromBooking} onHome={backToExplore} onConfirm={confirmBooking} error={error} defaultName={profile?.nombre || session?.user?.name} defaultPhone={profile?.whatsapp} submitting={submittingBooking} />);
+  const openAccount = () => session?.user ? goToScreen('profile') : loginWithGoogle();
+  if (screen === 'bookings') return layout('bookings', <BookingsScreen bookings={bookings} onChange={goToScreen} session={session} onLogin={loginWithGoogle} onCancel={cancelBooking} notice={paymentNotice} canManage={canManage} />, true);
+  if (screen === 'saved') return layout('saved', <SavedScreen complexes={complexes} saved={saved} onOpen={openComplex} onToggleSaved={toggleSaved} onChange={goToScreen} session={session} onLogin={loginWithGoogle} canManage={canManage} />, true);
+  if (screen === 'profile') return layout('profile', <ProfileScreen key={profile?.email || session?.user?.id || 'guest'} profile={profile} session={session?.user} onChange={goToScreen} onLogin={loginWithGoogle} onLogout={logout} onSave={saveProfile} canManage={canManage} />, true);
   return layout('explore', <ExploreScreen complexes={complexes} query={query} setQuery={setQuery} onOpen={openComplex} saved={saved} onToggleSaved={toggleSaved} session={session} onLogin={openAccount} canManage={canManage} />, true);
 }

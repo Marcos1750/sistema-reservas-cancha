@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { ConfirmDialogProvider } from './components/ConfirmDialogProvider';
 import Reservas from './Login';
 import PanelAdmin from './PanelAdmin';
@@ -11,11 +11,9 @@ function App() {
     <BrowserRouter>
       <ConfirmDialogProvider>
         <Routes>
-          <Route path="/" element={<Reservas />} />
-          <Route path="/complejos/:slug" element={<Reservas />} />
           <Route path="/admin" element={<PanelAdmin />} />
           <Route path="/planes" element={<Planes />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/*" element={<Reservas />} />
         </Routes>
       </ConfirmDialogProvider>
     </BrowserRouter>

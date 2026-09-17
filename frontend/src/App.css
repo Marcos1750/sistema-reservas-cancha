@@ -1807,3 +1807,174 @@ body { min-width: 0; overflow-x: clip; }
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* Public flow: route-safe responsive composition and a CTA anchored to the stage. */
+.public-layout__stage {
+  --public-stage-gutter: 16px;
+  min-width: 0;
+  container-name: public-stage;
+  container-type: inline-size;
+}
+
+.public-layout .app-shell--detail,
+.public-layout .app-shell--booking {
+  overflow-x: clip;
+}
+
+.public-layout .complex-detail {
+  display: block;
+  min-width: 0;
+  padding-bottom: 165px;
+}
+
+.public-layout .complex-detail__booking {
+  min-width: 0;
+  margin-top: 32px;
+  padding-top: 0;
+  container-name: booking-panel;
+  container-type: inline-size;
+}
+
+.public-layout .availability,
+.public-layout .date-rail,
+.public-layout .date-tabs,
+.public-layout .time-grid,
+.public-layout .court-selector,
+.public-layout .court-selector__grid {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.public-layout .time-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.public-layout .time-slot {
+  min-width: 0;
+  padding-inline: 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.public-layout .detail-intro p,
+.public-layout .booking-summary p {
+  min-width: 0;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.public-layout .section-label > * {
+  min-width: 0;
+}
+
+.public-layout .availability-note {
+  flex: 0 0 auto;
+}
+
+.public-layout .booking-content {
+  width: min(100%, 780px);
+  margin-inline: auto;
+}
+
+.public-layout .sticky-cta {
+  position: fixed;
+  z-index: 30;
+  inset: auto 0 0;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  transform: none;
+  border-top: 1px solid var(--line);
+  background: rgba(11, 14, 12, .96);
+  box-shadow: 0 -16px 42px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(14px);
+}
+
+.public-layout .app-shell--detail .sticky-cta {
+  bottom: 0;
+}
+
+.sticky-cta__inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px 20px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(1500px + (2 * var(--public-stage-gutter)));
+  min-height: 85px;
+  margin-inline: auto;
+  padding: 14px var(--public-stage-gutter) max(17px, env(safe-area-inset-bottom));
+}
+
+.sticky-cta__inner > div:first-child,
+.sticky-cta__inner > p {
+  min-width: 0;
+  margin: 0;
+}
+
+.sticky-cta__inner > .primary-button {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+@container booking-panel (min-width: 520px) {
+  .public-layout .time-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container public-stage (min-width: 1160px) {
+  .public-layout .complex-detail {
+    display: grid;
+    grid-template-columns: minmax(440px, 1.1fr) minmax(420px, .9fr);
+    gap: clamp(44px, 6vw, 96px);
+    align-items: start;
+    padding-top: 18px;
+    padding-bottom: 186px;
+  }
+
+  .public-layout .complex-detail__booking {
+    margin-top: 0;
+    padding-top: 4px;
+  }
+}
+
+@media (min-width: 781px) and (max-width: 1023px) {
+  .public-layout__stage { --public-stage-gutter: 24px; }
+}
+
+@media (min-width: 1024px) {
+  .public-layout__stage { --public-stage-gutter: clamp(54px, 6vw, 120px); }
+  .public-layout .sticky-cta { left: var(--public-sidebar-width); }
+}
+
+@media (max-width: 520px) {
+  .sticky-cta__inner {
+    gap: 10px;
+  }
+
+  .sticky-cta__inner > .primary-button {
+    padding-inline: 13px;
+  }
+
+  .public-layout .time-slot {
+    min-height: 50px;
+    font-size: 11px;
+  }
+}
+
+@media (pointer: coarse) {
+  .public-layout .round-button,
+  .public-layout .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .public-layout .primary-button,
+  .public-layout .secondary-button,
+  .public-layout .time-slot {
+    min-height: 48px;
+  }
+}
